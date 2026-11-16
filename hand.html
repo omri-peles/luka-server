@@ -9,6 +9,7 @@ input{padding:12px;border-radius:10px;border:1px solid #2b4c60;background:#0d1e2
 <h1>היד של לוקה</h1>
 <p>השאר את הדף הזה פתוח במחשב. כשתבקש מלוקה לפתוח משהו במחשב, הוא ייפתח כאן בלשונית חדשה.</p>
 <div id="st">—</div>
+<div id="warn" class="hidden" style="background:#3a1620;border:1px solid #a04050;border-radius:12px;padding:16px;max-width:560px;margin:16px auto;line-height:1.7">הדפדפן חסם את הפתיחה. כדי שלוקה תוכל לפתוח דברים לבד: לחץ על סמל החלון החסום בקצה שורת הכתובת ובחר "אפשר תמיד חלונות קופצים מהאתר הזה".<br><button id="openNow" style="margin-top:10px">פתח עכשיו את מה שנחסם</button></div>
 <div id="pair" class="hidden"><input id="code" inputmode="numeric" maxlength="6" placeholder="קוד בן 6 ספרות"><br></div>
 <button id="go">חבר את המחשב</button>
 <div id="log"></div>
@@ -17,11 +18,17 @@ input{padding:12px;border-radius:10px;border:1px solid #2b4c60;background:#0d1e2
 const $ = id => document.getElementById(id);
 const log = t => { $("log").innerHTML = new Date().toLocaleTimeString("he-IL") + " — " + t + "<br>" + $("log").innerHTML; };
 let pairing = false, running = false;
+let blocked = [];
 function openUrl(u){
   const w = window.open(u, "_blank");
-  if(!w){ $("st").textContent = "הדפדפן חסם את הפתיחה. אשר חלונות קופצים לאתר הזה (סמל בשורת הכתובת) ונסה שוב."; log("נחסם: " + u); return; }
+  if(!w){ blocked.push(u); $("warn").classList.remove("hidden"); log("נחסם על ידי הדפדפן: " + u); return; }
   log("נפתח: " + u);
 }
+$("openNow").addEventListener("click", ()=>{            // a real click, so the browser allows it
+  const list = blocked; blocked = [];
+  for(const u of list){ const w = window.open(u, "_blank"); if(w) log("נפתח: " + u); else blocked.push(u); }
+  if(!blocked.length) $("warn").classList.add("hidden");
+});
 async function loop(){
   if(running) return; running = true; $("go").classList.add("hidden"); $("pair").classList.add("hidden");
   for(;;){
