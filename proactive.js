@@ -55,16 +55,17 @@ async function handleItem(kind, idKey, id, summary) {
 
   // He's away from the tablet, so reach his phone. Within the allowed hours a
   // high-urgency item earns a real phone call; everything else (and any call
-  // failure) goes out as an SMS — reliable anytime — with WhatsApp as a last resort.
+  // failure) goes to WhatsApp (his preferred channel, where he chats with Luka),
+  // with SMS as a fallback for when the WhatsApp 24h window is closed.
   if (verdict.urgency === 'high' && withinCallWindow()) {
     const res = await callOwner(verdict.say);
     if (res.ok) { console.log('[proactive] called owner'); return; }
     console.warn('[proactive] call unavailable, falling back:', res.reason);
   }
-  let r = await smsOwner(verdict.say);
+  let r = await whatsappOwner(verdict.say);
   if (!r.ok) {
-    console.warn('[proactive] sms failed, trying whatsapp:', r.reason);
-    r = await whatsappOwner(verdict.say);
+    console.warn('[proactive] whatsapp failed, trying sms:', r.reason);
+    r = await smsOwner(verdict.say);
   }
   if (!r.ok) console.warn('[proactive] all channels failed:', r.reason);
   else console.log('[proactive] proactive message delivered to owner');
