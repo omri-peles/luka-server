@@ -4,7 +4,8 @@ import { load, save, set, get } from './store.js';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly'
+  // calendar.events = read + write events (lets Luka create/update, and still list)
+  'https://www.googleapis.com/auth/calendar.events'
 ];
 
 export function oauthClient() {
@@ -115,7 +116,8 @@ export async function upcomingEvents(minutes = 15) {
 }
 
 // Human-readable Hebrew agenda for the next `hours` hours (for answering chat questions).
-export async function agendaText(hours = 72) {
+// Default widened to 14 days so events a week+ out still surface to Luka.
+export async function agendaText(hours = 336) {
   const client = authed();
   if (!client) return '';
   const cal = google.calendar({ version: 'v3', auth: client });
@@ -158,4 +160,70 @@ export async function recentEmailText(n = 5) {
     } catch { /* skip */ }
   }
   return out.length ? out.join('\n') : 'אין מיילים חדשים שלא נקראו.';
+}
+
+// ---- Calendar WRITE ----
+const TZ = () => process.env.TIMEZONE || 'Asia/Jerusalem';
+
+// Build a Google start/end object. If the value is a date only (YYYY-MM-DD) → all-day.
+function timeObj(v) {
+  if (!v) return null;
+  return (String(v).length <= 10)
+    ? { date: v }
+    : { dateTime: v, timeZone: TZ() };
+}
+
+// Create a new event. start/end are ISO strings (with offset or local) or YYYY-MM-DD for all-day.
+// If end is missing, defaults to 1 hour after a timed start.
+export async function createEvent({ title, start, end, description, location }) {
+  const client = authed();
+  if (!client) throw new Error('google-not-connected');
+  const cal = google.calendar({ version: 'v3', auth: client });
+  let endVal = end;
+  if (!endVal && start && String(start).length > 10) {
+    endVal = new Date(new Date(start).getTime() + 60 * 60000).toISOString();
+  }
+  const requestBody = {
+    summary: title || 'אירוע',
+    description: description || undefined,
+    location: location || undefined,
+    start: timeObj(start),
+    end: timeObj(endVal || start)
+  };
+  const res = await cal.events.insert({ calendarId: 'primary', requestBody });
+  return { id: res.data.id, summary: res.data.summary, start: res.data.start, link: res.data.htmlLink };
+}
+
+// Find upcoming events whose title contains `query` (case-insensitive), to locate one to update.
+export async function findEvents(query, days = 60) {
+  const client = authed();
+  if (!client) return [];
+  const cal = google.calendar({ version: 'v3', auth: client });
+  const now = new Date();
+  const end = new Date(now.getTime() + days * 86400000);
+  const res = await cal.events.list({
+    calendarId: 'primary', timeMin: now.toISOString(), timeMax: end.toISOString(),
+    singleEvents: true, orderBy: 'startTime', maxResults: 50,
+    q: query || undefined
+  });
+  return (res.data.items || []).map(ev => ({
+    id: ev.id,
+    summary: ev.summary || '(ללא שם)',
+    start: ev.start?.dateTime || ev.start?.date || ''
+  }));
+}
+
+// Update an existing event by id. Only provided fields change (patch).
+export async function updateEvent({ id, title, start, end, description, location }) {
+  const client = authed();
+  if (!client) throw new Error('google-not-connected');
+  const cal = google.calendar({ version: 'v3', auth: client });
+  const requestBody = {};
+  if (title) requestBody.summary = title;
+  if (description) requestBody.description = description;
+  if (location) requestBody.location = location;
+  if (start) requestBody.start = timeObj(start);
+  if (end) requestBody.end = timeObj(end);
+  const res = await cal.events.patch({ calendarId: 'primary', eventId: id, requestBody });
+  return { id: res.data.id, summary: res.data.summary, start: res.data.start, link: res.data.htmlLink };
 }
