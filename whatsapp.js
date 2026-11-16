@@ -39,6 +39,32 @@ let reconnecting = false; // guards against overlapping reconnect loops
 // Baileys wants a pino-like logger; a silent no-op keeps logs clean and adds no dependency.
 const silent = { level: 'silent', child: () => silent, trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {} };
 
+// Find who the owner means: a phone number, or the name of someone who has written to him.
+// Returns { jid, name } | { ambiguous: [names] } | null.
+export function resolveRecipient(q) {
+  const query = (q || '').toString().trim();
+  if (!query) return null;
+  const digits = query.replace(/\D/g, '');
+  if (digits.length >= 9 && digits.length >= query.replace(/[\s\-+()]/g, '').length) {
+    const intl = digits.startsWith('0') ? '972' + digits.slice(1) : digits;
+    return { jid: intl + '@s.whatsapp.net', name: query };
+  }
+  const contacts = Object.entries(load().waContacts || {});
+  const norm = x => x.toLowerCase().trim();
+  let hits = contacts.filter(([, n]) => norm(n) === norm(query));
+  if (!hits.length) hits = contacts.filter(([, n]) => norm(n).includes(norm(query)) || norm(query).includes(norm(n)));
+  if (!hits.length) return null;
+  const names = [...new Set(hits.map(([, n]) => n))];
+  if (names.length > 1) return { ambiguous: names };
+  return { jid: hits[hits.length - 1][0], name: names[0] };
+}
+
+// Send a text from the owner's own WhatsApp. Throws if the link is down.
+export async function sendWhatsApp(jid, text) {
+  if (!sock || connState !== 'connected') throw new Error('not-connected');
+  await sock.sendMessage(jid, { text });
+}
+
 export function waStatus() { return { state: connState, hasQR: !!lastQR }; }
 export function waQR() { return lastQR; }
 
@@ -109,6 +135,11 @@ export async function startWhatsApp() {
           try {
             const s = load();
             s.waRecent = (s.waRecent || []).concat({ from, body: body.slice(0, 300), at: Date.now() }).slice(-20);
+            // Remember who this is, so Luka can later send a reply to them by name.
+            const contacts = { ...(s.waContacts || {}), [jid]: from };
+            const keys = Object.keys(contacts);
+            if (keys.length > 200) delete contacts[keys[0]];
+            s.waContacts = contacts;
             save();
           } catch { /* best effort */ }
           // Reuse the proactive pipeline: classify urgency, update the tablet, and only reach

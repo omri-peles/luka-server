@@ -77,8 +77,57 @@ async function weatherText(city) {
   return out;
 }
 
+// Sending WhatsApp in the owner's name is a TWO-STEP action enforced in code, not just by prompt:
+// prepare (draft, nothing sent) -> the owner hears it and says yes -> confirm (actually sends).
+// confirm is refused in the same turn as prepare, so she can never send without his explicit OK.
+const WA_TOOLS = [
+  {
+    name: 'prepare_whatsapp_message',
+    description: 'הכנת טיוטה של הודעת וואטסאפ שתישלח מהוואטסאפ של אדוני לאדם אחר. לא שולחת דבר. אחריה חובה להקריא לאדוני את הנמען והנוסח ולשאול אם לשלוח.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        recipient: { type: 'string', description: 'שם איש הקשר (מי שכתב לאדוני לאחרונה) או מספר טלפון.' },
+        text: { type: 'string', description: 'נוסח ההודעה, בגוף ראשון כאילו אדוני כותב.' }
+      },
+      required: ['recipient', 'text']
+    }
+  },
+  {
+    name: 'confirm_whatsapp_send',
+    description: 'שליחת הטיוטה הממתינה. מותר לקרוא לכלי הזה רק אחרי שאדוני אישר במפורש (כן / שלחי) בהודעה נפרדת, אחרי ששמע את הנמען והנוסח.',
+    input_schema: { type: 'object', properties: {} }
+  }
+];
+let turnNo = 0;
+let pendingWa = null;
+
 // Execute a tool call, return a short Hebrew result string for the model.
 async function runTool(name, input) {
+  if (name === 'prepare_whatsapp_message') {
+    try {
+      const wa = await import('./whatsapp.js');
+      const r = wa.resolveRecipient(input && input.recipient);
+      if (!r) return 'לא מצאתי איש קשר בשם הזה בין מי שכתב לאדוני לאחרונה. בקשי מאדוני מספר טלפון.';
+      if (r.ambiguous) return 'יש כמה אנשי קשר מתאימים: ' + r.ambiguous.join(', ') + '. שאלי את אדוני למי הכוונה.';
+      const text = ((input && input.text) || '').toString().trim();
+      if (!text) return 'חסר נוסח להודעה.';
+      pendingWa = { jid: r.jid, name: r.name, text, turn: turnNo, exp: Date.now() + 5 * 60000 };
+      return 'טיוטה מוכנה ולא נשלחה. נמען: ' + r.name + '. נוסח: "' + text + '". הקריאי לאדוני את הנמען והנוסח ושאלי אם לשלוח.';
+    } catch { return 'לא הצלחתי להכין את ההודעה.'; }
+  }
+  if (name === 'confirm_whatsapp_send') {
+    if (!pendingWa || Date.now() > pendingWa.exp) { pendingWa = null; return 'אין הודעה שממתינה לשליחה.'; }
+    if (pendingWa.turn >= turnNo) return 'אי אפשר לשלוח באותה פנייה שבה הוכנה הטיוטה. חכי לאישור מפורש של אדוני בהודעה הבאה שלו.';
+    try {
+      const wa = await import('./whatsapp.js');
+      await wa.sendWhatsApp(pendingWa.jid, pendingWa.text);
+      const n = pendingWa.name; pendingWa = null;
+      return 'ההודעה נשלחה אל ' + n + '.';
+    } catch (e) {
+      return String(e.message || e).includes('not-connected') ? 'הוואטסאפ לא מחובר כרגע, ההודעה לא נשלחה.' : 'השליחה נכשלה, ההודעה לא נשלחה.';
+    }
+  }
   if (name === 'get_weather') {
     try { return await weatherText(input && input.city); }
     catch { return 'לא הצלחתי להביא את מזג האוויר כרגע.'; }
@@ -157,6 +206,7 @@ async function liveContext() {
 
 // Conversational reply, with shared memory across tablet + whatsapp, and calendar tool-use.
 export async function chat(text) {
+  turnNo++;
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
@@ -165,7 +215,7 @@ export async function chat(text) {
     "כשאדוני אומר 'מחר', 'יום ראשון הבא' וכדומה — חשבי את התאריך המדויק ביחס לעכשיו.";
 
   const connected = isConnected();
-  sys += "\n\nהיכולות שלך: שעון ותאריך (למעלה), מזג אוויר (דרך הכלי get_weather), הודעות וואטסאפ נכנסות אחרונות, " +
+  sys += "\n\nהיכולות שלך: שעון ותאריך (למעלה), מזג אוויר (דרך הכלי get_weather), הודעות וואטסאפ נכנסות אחרונות, שליחת וואטסאפ בשם אדוני (תמיד בשני שלבים: טיוטה, הקראה לאדוני, ושליחה רק אחרי שאישר במפורש), " +
     (connected
       ? "וגישה חיה ליומן (קריאה וכתיבה) ולמייל של אדוני. לעולם אל תאמרי שאין לך גישה לדברים האלה."
       : "אך החיבור ל-Google (יומן ומייל) מנותק כרגע; אם תישאלי על יומן או מייל, אמרי שהחיבור ל-Google דורש חידוש.");
@@ -178,7 +228,7 @@ export async function chat(text) {
 
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
-  const tools = connected ? [...TOOLS, WEATHER_TOOL] : [WEATHER_TOOL];
+  const tools = connected ? [...TOOLS, WEATHER_TOOL, ...WA_TOOLS] : [WEATHER_TOOL, ...WA_TOOLS];
   for (let i = 0; i < 4; i++) {
     const j = await callRaw(messages, { system: sys, tools });
     const content = j.content || [];
