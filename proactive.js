@@ -51,7 +51,9 @@ export async function handleItem(kind, idKey, id, summary, opts = {}) {
   if (opts.forceHigh) verdict.urgency = 'high'; // urgent keywords in the message override the classifier
 
   // Always let the tablet know (she'll say it aloud when he's near / when polled).
-  queueForTablet(verdict.say);
+  // Ordinary WhatsApp messages are NOT read aloud on the tablet (only urgent ones are). They are
+  // still kept in the recent-messages log, so Luka can answer when he asks who wrote to him.
+  if (!(kind === 'whatsapp' && verdict.urgency !== 'high')) queueForTablet(verdict.say);
 
   // If he's AT the tablet, that's enough for ordinary items. An URGENT item still rings his
   // phone (an open Luka page on some screen must never swallow a "call me now").
