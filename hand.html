@@ -30,9 +30,9 @@ function closeTabs(what){
   let pick = [];
   if(what === "all") pick = alive;
   else if(what === "last") pick = alive.slice(-1);
-  else { const q = what.toLowerCase(); pick = alive.filter(o => { let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return d.toLowerCase().includes(q); }); if(!pick.length) pick = alive.slice(-1); }
+  else { const q = what.toLowerCase(); pick = alive.filter(o => { let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return d.toLowerCase().includes(q); }); }
   for(const o of pick){ try{ o.w.close(); }catch(e){} }
-  log(pick.length ? "נסגרו " + pick.length + " לשוניות" : "אין לשונית שלוקה פתחה כדי לסגור");
+  log(pick.length ? "נסגרו " + pick.length + " לשוניות" : "לא נמצאה לשונית מתאימה שלוקה פתחה (\"" + what + "\"), לא נסגר דבר");
 }
 $("openNow").addEventListener("click", ()=>{            // a real click, so the browser allows it
   const list = blocked; blocked = [];
