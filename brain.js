@@ -3,7 +3,7 @@ import { load, save } from './store.js';
 import { isConnected, agendaText, recentEmailText } from './google.js';
 
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
-const MODELS = ['claude-haiku-5-5', 'claude-3-5-haiku-latest', 'claude-sonnet-5-5', 'claude-3-5-sonnet-latest'];
+const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-4-8'];
 let goodModel = '';
 
 export const PERSONA =
@@ -30,10 +30,13 @@ async function call(messages, { system = PERSONA, maxTokens = 400 } = {}) {
       });
       if (r.ok) {
         const j = await r.json();
-        const out = (((j.content || [])[0] || {}).text || '').trim();
+        // Find the text block (models may return a "thinking" block first).
+        const out = (j.content || []).filter(b => b && b.type === 'text').map(b => b.text || '').join('').trim();
         if (out) { goodModel = model; return out; }
       } else {
-        lastErr = 'HTTP ' + r.status;
+        let detail = '';
+        try { const ej = await r.json(); detail = ej.error ? (ej.error.type + ': ' + (ej.error.message || '')) : ''; } catch { }
+        lastErr = model + ' → HTTP ' + r.status + (detail ? ' (' + detail + ')' : '');
         if (r.status === 401 || r.status === 403) lastErr = 'invalid key or no credit';
       }
     } catch (e) { lastErr = String(e.message || e); }
