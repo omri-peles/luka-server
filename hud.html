@@ -136,7 +136,12 @@
 const VOICE_ID = "s0T0DT6EAPeX57MQpn3I";                       // Danit
 const TTS_MODELS = ["eleven_v3", "eleven_multilingual_v2"];     // v3 = correct Hebrew; NO turbo
 const BRAIN_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
-const WAKE = /היי\s*לוקה|הי\s*לוקה|לוקה/;
+// Her name, as Hebrew speech recognition tends to write it (several spellings), optionally after "היי".
+// Matched as a whole word, in ANY of the recognizer's alternative guesses.
+const WAKE = /(?:^|[\s,.!?־-])(?:(?:היי|הי|הלו|אהלן)\s+)?(?:לוקה|לוקא|לוקאה|לוכה|לוקע|לוקאס|לוקס|luka|luca|lucas|looka)(?=$|[\s,.!?:־-])/i;
+function afterWake(t){ const m = WAKE.exec(t); return m ? t.slice(m.index + m[0].length).replace(/^[\s,.!?:־-]+/, "").trim() : null; }
+function arm(ms){ armed = true; clearTimeout(armTimer); armTimer = setTimeout(disarm, ms || 9000); }
+function disarm(){ armed = false; clearTimeout(armTimer); if(!speaking && body.className !== "thinking"){ mode(""); setStatus("מקשיבה…"); } }
 const PERSONA =
   "את לוּקה, עוזרת אישית בהשראת ה-JARVIS של טוני סטארק. מנומסת, רהוטה, רגועה וקרת רוח. " +
   "שמך נהגה 'לוּ-קה' (Luka); כשאת כותבת אותו, כתבי תמיד 'לוּקה' עם שורוק. " +
@@ -230,7 +235,7 @@ function playAudio(buf){
         startViz(src);
       }catch(e){ /* viz unavailable — audio still plays via audio.play() below */ }
       const done = ()=>{ URL.revokeObjectURL(url); stopViz(); speaking=false; resolve();
-        mode(""); setStatus("מקשיבה…"); ensureRecog(); };
+        mode(""); setStatus("מקשיבה…"); ensureRecog(); arm(8000); };
       audio.onended = done; audio.onerror = done;
       audio.play().catch(()=>done());
     }catch(e){ speaking=false; resolve(); ensureRecog(); }
@@ -304,7 +309,7 @@ async function handleStream(text){
     }
     await chain;
   }finally{
-    if(started){ stopViz(); speaking = false; mode(""); setStatus("מקשיבה…"); ensureRecog(); }
+    if(started){ stopViz(); speaking = false; mode(""); setStatus("מקשיבה…"); ensureRecog(); arm(8000); }
   }
   if(got && !started){ mode(""); setStatus("מקשיבה…"); }   // answer arrived but audio failed
   return got;
@@ -334,19 +339,24 @@ function buildRecog(){
   if(!SR){ setStatus("הדפדפן לא תומך בזיהוי דיבור."); return null; }
   const r = new SR();
   r.lang = "he-IL"; r.continuous = true; r.interimResults = true;
+  r.maxAlternatives = 5;
   r.onresult = (ev)=>{
-    let finalText = "";
+    if(speaking) return;
     for(let i=ev.resultIndex;i<ev.results.length;i++){
-      if(ev.results[i].isFinal) finalText += ev.results[i][0].transcript;
-    }
-    finalText = finalText.trim();
-    if(!finalText || speaking) return;
-    if(armed){ clearTimeout(armTimer); armed=false; handle(finalText); }
-    else if(WAKE.test(finalText)){
-      const after = finalText.replace(WAKE,"").trim();
-      if(after.length>=2){ handle(after); }
-      else{ armed=true; setStatus("כן אדוני?"); clearTimeout(armTimer);
-            armTimer=setTimeout(()=>{ armed=false; setStatus("מקשיבה…"); },9000); }
+      const res = ev.results[i];
+      const alts = []; for(let k=0;k<res.length;k++) alts.push((res[k].transcript||"").trim());
+      const hit = alts.find(a => WAKE.test(a));
+      if(!res.isFinal){
+        // Heard her name mid-sentence: react at once, don't wait for the pause at the end.
+        if(hit && !armed){ arm(9000); mode("listening"); setStatus("כן אדוני?"); }
+        continue;
+      }
+      const best = alts[0] || "";
+      if(hit){
+        const after = afterWake(hit);
+        if(after && after.length >= 2){ disarm(); handle(after); }          // "לוקה, מה השעה"
+        else { arm(9000); mode("listening"); setStatus("כן אדוני?"); }       // just her name: wait for the request
+      } else if(armed && best.length >= 2){ disarm(); handle(best); }
     }
   };
   r.onend = ()=>{ running=false; if(!speaking) setTimeout(ensureRecog,300); };
@@ -369,8 +379,7 @@ function stopRecog(){ try{ recog && recog.stop(); }catch(e){} running=false; }
 // ---------- Manual ask button ----------
 $("askBtn").addEventListener("click", ()=>{
   if(speaking) return;
-  armed=true; setStatus("כן אדוני?"); clearTimeout(armTimer);
-  armTimer=setTimeout(()=>{ armed=false; setStatus("מקשיבה…"); },9000);
+  arm(9000); mode("listening"); setStatus("כן אדוני?");
   stopRecog(); setTimeout(ensureRecog,200);
 });
 
