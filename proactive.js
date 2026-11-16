@@ -4,7 +4,7 @@
 import { load, save, remember, get } from './store.js';
 import { newImportantEmails, upcomingEvents, isConnected } from './google.js';
 import { classify } from './brain.js';
-import { callOwner } from './phone.js';
+import { callOwner, whatsappOwner } from './phone.js';
 import { cleanup } from './voice.js';
 
 const TZ = () => process.env.TIMEZONE || 'Asia/Jerusalem';
@@ -50,13 +50,20 @@ async function handleItem(kind, idKey, id, summary) {
   // Always let the tablet know (she'll say it aloud when he's near / when polled).
   queueForTablet(verdict.say);
 
-  // Call the phone only when it's genuinely worth interrupting AND he's away from the tablet
-  // AND we're inside the allowed hours.
-  if (verdict.urgency === 'high' && !presentAtTablet() && withinCallWindow()) {
+  // If he's AT the tablet, that's enough — don't also ping his phone.
+  if (presentAtTablet()) return;
+
+  // He's away from the tablet, so reach his phone. Within the allowed hours a
+  // high-urgency item earns a real call; everything else (and any call failure)
+  // goes out as a WhatsApp message so the update is never lost.
+  if (verdict.urgency === 'high' && withinCallWindow()) {
     const res = await callOwner(verdict.say);
-    if (!res.ok) console.warn('[proactive] call failed:', res.reason);
-    else console.log('[proactive] called owner:', verdict.say);
+    if (res.ok) { console.log('[proactive] called owner'); return; }
+    console.warn('[proactive] call unavailable, falling back to whatsapp:', res.reason);
   }
+  const wr = await whatsappOwner(verdict.say);
+  if (!wr.ok) console.warn('[proactive] whatsapp failed:', wr.reason);
+  else console.log('[proactive] whatsapp sent to owner');
 }
 
 let running = false;
