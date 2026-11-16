@@ -23,6 +23,7 @@ function selfDigits() {
 let sock = null;
 let lastQR = null;        // data-URL image of the current linking QR
 let connState = 'init';   // init | qr | connected | logged_out | error
+let reconnecting = false; // guards against overlapping reconnect loops
 
 // Baileys wants a pino-like logger; a silent no-op keeps logs clean and adds no dependency.
 const silent = { level: 'silent', child: () => silent, trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {} };
@@ -37,12 +38,20 @@ export async function startWhatsApp() {
     const QRCode = QRCodeMod.default || QRCodeMod;
     const useMultiFileAuthState = baileys.useMultiFileAuthState || baileys.default?.useMultiFileAuthState;
     const DisconnectReason = baileys.DisconnectReason || baileys.default?.DisconnectReason;
+    const fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion || baileys.default?.fetchLatestBaileysVersion;
     const makeWASocket = (typeof baileys.default === 'function' && baileys.default)
       || baileys.makeWASocket || baileys.default?.default || baileys.default?.makeWASocket;
+
+    // Use WhatsApp Web's CURRENT protocol version — the version baked into the library can be
+    // stale, and WhatsApp then rejects the handshake (405) and closes before a QR is shown.
+    let version;
+    try { ({ version } = await fetchLatestBaileysVersion()); console.log('[wa] WA version', version?.join('.')); }
+    catch (e) { console.warn('[wa] version fetch failed, using library default:', e.message); }
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     sock = makeWASocket({
       auth: state,
+      version,
       printQRInTerminal: false,
       logger: silent,
       browser: ['Luka', 'Chrome', '1.0'],
@@ -61,9 +70,10 @@ export async function startWhatsApp() {
         if (code === DisconnectReason.loggedOut) {
           connState = 'logged_out';
           console.warn('[wa] logged out — needs re-linking at /wa/link');
-        } else {
-          console.warn('[wa] connection closed, reconnecting in 3s');
-          setTimeout(() => startWhatsApp(), 3000);
+        } else if (!reconnecting) {
+          reconnecting = true;                 // avoid stacking reconnect loops from stale sockets
+          console.warn(`[wa] connection closed (code ${code ?? '?'}), reconnecting in 10s`);
+          setTimeout(() => { reconnecting = false; startWhatsApp(); }, 10000);
         }
       }
     });
