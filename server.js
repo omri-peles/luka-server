@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import twilio from 'twilio';
 import { takeAll, report, takeMac } from './computer.js';
 import fs from 'fs';
-import { readSite } from './sites.js';
+import { readSite, deleteSite } from './sites.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -185,6 +185,11 @@ app.get('/sites/:slug', (req, res) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('Cache-Control', 'no-store');
   res.type('text/html').send(html);
+});
+
+app.post('/sites/:slug/delete', (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  res.json({ ok: deleteSite(req.params.slug) });
 });
 
 // ---------- LUKA'S HAND as a small background program on the Mac ----------

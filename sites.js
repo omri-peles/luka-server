@@ -141,3 +141,14 @@ export function undoSite(slug) {
   fs.copyFileSync(file(slug), file(slug) + '.bak'); fs.writeFileSync(file(slug), prev);
   return `האתר "${cur.name}" הוחזר לגרסה הקודמת.`;
 }
+
+// Not a voice tool on purpose (a misheard word must not delete a site). Owner-only endpoint.
+export function deleteSite(slug) {
+  slug = (slug || '').toString().toLowerCase().trim();
+  const list = index(); const i = list.findIndex(x => x.slug === slug);
+  if (i < 0 || !okSlug(slug) || busy.has(slug)) return false;
+  try { fs.unlinkSync(file(slug)); } catch {}
+  try { fs.unlinkSync(file(slug) + '.bak'); } catch {}
+  list.splice(i, 1); save();
+  return true;
+}
