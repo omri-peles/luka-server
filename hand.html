@@ -22,11 +22,21 @@ let blocked = [];
 function openUrl(u){
   const w = window.open(u, "_blank");
   if(!w){ blocked.push(u); $("warn").classList.remove("hidden"); log("נחסם על ידי הדפדפן: " + u); return; }
-  log("נפתח: " + u);
+  opened.push({ w, u }); log("נפתח: " + u);
+}
+const opened = [];                               // tabs this page opened, so Luka can close them
+function closeTabs(what){
+  const alive = opened.filter(o => o.w && !o.w.closed);
+  let pick = [];
+  if(what === "all") pick = alive;
+  else if(what === "last") pick = alive.slice(-1);
+  else { const q = what.toLowerCase(); pick = alive.filter(o => { let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return d.toLowerCase().includes(q); }); if(!pick.length) pick = alive.slice(-1); }
+  for(const o of pick){ try{ o.w.close(); }catch(e){} }
+  log(pick.length ? "נסגרו " + pick.length + " לשוניות" : "אין לשונית שלוקה פתחה כדי לסגור");
 }
 $("openNow").addEventListener("click", ()=>{            // a real click, so the browser allows it
   const list = blocked; blocked = [];
-  for(const u of list){ const w = window.open(u, "_blank"); if(w) log("נפתח: " + u); else blocked.push(u); }
+  for(const u of list){ const w = window.open(u, "_blank"); if(w){ opened.push({ w, u }); log("נפתח: " + u); } else blocked.push(u); }
   if(!blocked.length) $("warn").classList.add("hidden");
 });
 async function loop(){
@@ -37,7 +47,7 @@ async function loop(){
       if(r.status === 401){ localStorage.removeItem("luka_token"); running = false; $("go").classList.remove("hidden"); $("st").textContent = "החיבור פג. לחץ לחיבור מחדש."; return; }
       const j = await r.json();
       $("st").textContent = "מחובר. מחכה לפקודות מלוקה.";
-      for(const c of (j.items || [])) if(c.type === "open") openUrl(c.url);
+      for(const c of (j.items || [])){ if(c.type === "open") openUrl(c.url); else if(c.type === "close") closeTabs(c.what || "last"); }
     }catch(e){ $("st").textContent = "אין חיבור לשרת, מנסה שוב…"; }
     await new Promise(r => setTimeout(r, 2000));
   }

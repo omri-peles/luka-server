@@ -22,3 +22,12 @@ export function openOnComputer(url) {
   enqueue({ type: 'open', url: u });
   return 'נשלח למחשב: נפתח ' + u;
 }
+
+// Close tabs that Luka's hand opened. what: 'last' | 'all' | free text matched against the address
+// (e.g. the search words). Tabs the owner opened himself cannot be closed by a web page.
+export function closeOnComputer(what) {
+  const w = (what || 'last').toString().trim() || 'last';
+  if (!computerOnline()) return 'לא נשלח: המחשב לא מחובר כרגע.';
+  enqueue({ type: 'close', what: w });
+  return 'נשלחה למחשב בקשת סגירה (' + w + '). אפשר לסגור רק לשוניות שלוקה פתחה בעצמה מאז שהדף "היד של לוקה" נפתח.';
+}

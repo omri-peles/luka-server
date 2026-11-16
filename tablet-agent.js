@@ -6,13 +6,18 @@ import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
-import { openOnComputer, computerOnline } from './computer.js';
+import { openOnComputer, closeOnComputer, computerOnline } from './computer.js';
 
 const COMPUTER_TOOLS = [
   {
     name: 'open_on_computer',
     description: 'פתיחת אתר בדפדפן של המחשב של אדוני (לא בטאבלט). השתמשי בזה כשאדוני מבקש לפתוח משהו במחשב. ליוטיוב: https://www.youtube.com או חיפוש https://www.youtube.com/results?search_query=... ; לחיפוש בגוגל: https://www.google.com/search?q=... ; לכל אתר אחר: הכתובת המלאה שלו.',
     input_schema: { type: 'object', properties: { url: { type: 'string', description: 'כתובת מלאה שמתחילה ב-https://' } }, required: ['url'] }
+  },
+  {
+    name: 'close_on_computer',
+    description: 'סגירת לשוניות במחשב של אדוני שאת פתחת. what: "last" לאחרונה שנפתחה, "all" לכולן, או מילים מתוך מה שנפתח (למשל שם הזמר שחיפשת). אפשר לסגור רק לשוניות שאת פתחת; לשוניות שאדוני פתח בעצמו אי אפשר.',
+    input_schema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] }
   }
 ];
 
@@ -57,7 +62,7 @@ async function buildSystem(s, connected) {
     sys += "\n\nהודעות וואטסאפ אחרונות שאדוני קיבל (יש לך גישה לקרוא אותן):\n" +
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
-  sys += "\n\nהמחשב של אדוני " + (computerOnline() ? "מחובר: את יכולה לפתוח בו אתרים בכלי open_on_computer." : "לא מחובר כרגע (הדף 'היד של לוקה' לא פתוח בו).");
+  sys += "\n\nהמחשב של אדוני " + (computerOnline() ? "מחובר: את יכולה לפתוח בו אתרים בכלי open_on_computer ולסגור לשוניות שפתחת בכלי close_on_computer." : "לא מחובר כרגע (הדף 'היד של לוקה' לא פתוח בו).");
   const mem = memoryText();
   sys += "\n\nהזיכרון האישי שלך על אדוני (נשמר בין שיחות). השתמשי בו בתשובותייך, ושמרי בו דברים חדשים בכלי remember:" + (mem || "\n(עדיין ריק)");
   sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה. אל תתקני ואל תתנצלי על תשובות קודמות אלא אם אדוני שאל על כך. התאריך והשעה שלמעלה הם שעון חי ומדויק לרגע זה: כשאת נשאלת מה השעה או מה התאריך, עני לפיהם בביטחון, גם אם בשיחה הקודמת נאמרה שעה אחרת.";
@@ -168,6 +173,7 @@ export async function chatStream(text, onSentence) {
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
             : b.name === 'open_on_computer' ? openOnComputer(inp.url)
+            : b.name === 'close_on_computer' ? closeOnComputer(inp.what)
             : await runTool(b.name, inp);
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
         }
