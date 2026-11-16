@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>לוקה</title>
+<style>
+  :root{ --cyan:#4fe3f2; --cyan-dim:rgba(79,227,242,.5); --cyan-faint:rgba(79,227,242,.14); --ink:#9fe7f4; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:#05090f; color:#cfeaf2;
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif; }
+  body{ height:100vh; position:relative; }
+
+  /* ---------- ambient background ---------- */
+  .bg{ position:fixed; inset:0; z-index:0;
+    background:
+      radial-gradient(circle at 50% 42%, rgba(23,56,80,.55), rgba(6,12,20,.9) 55%, #04070c 80%); }
+  .bg::before{ content:""; position:absolute; inset:-40%;
+    background:conic-gradient(from 0deg, transparent 0 80%, rgba(79,227,242,.07) 88%, transparent 96%);
+    animation:sweep 14s linear infinite; }
+  .grid{ position:fixed; inset:0; z-index:0; opacity:.14;
+    background-image:linear-gradient(rgba(79,227,242,.4) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(79,227,242,.4) 1px,transparent 1px);
+    background-size:46px 46px; mask:radial-gradient(circle at 50% 42%, #000 0%, transparent 62%); }
+  .vignette{ position:fixed; inset:0; z-index:2; pointer-events:none;
+    box-shadow:inset 0 0 220px 40px rgba(0,0,0,.75); }
+  .scan{ position:fixed; inset:0; z-index:2; pointer-events:none; opacity:.35;
+    background:repeating-linear-gradient(transparent 0 3px, rgba(0,0,0,.25) 3px 4px); }
+  @keyframes sweep{ to{ transform:rotate(360deg); } }
+
+  /* corner HUD brackets */
+  .bracket{ position:fixed; width:54px; height:54px; border:2px solid var(--cyan-dim); z-index:3; opacity:.7; }
+  .bracket.tl{ top:22px; left:22px; border-right:0; border-bottom:0; }
+  .bracket.tr{ top:22px; right:22px; border-left:0; border-bottom:0; }
+  .bracket.bl{ bottom:22px; left:22px; border-right:0; border-top:0; }
+  .bracket.br{ bottom:22px; right:22px; border-left:0; border-top:0; }
+
+  /* ---------- core stage ---------- */
+  #hud{ position:relative; z-index:3; height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:22px; text-align:center; padding:28px; }
+
+  .reactor{ position:relative; width:300px; height:300px; display:flex; align-items:center; justify-content:center; }
+  .reactor svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .ring{ fill:none; stroke:var(--cyan); transform-origin:150px 150px; }
+  .r-outer{ stroke:var(--cyan-faint); stroke-width:1.5; }
+  .r-ticks{ stroke:var(--cyan-dim); stroke-width:2; stroke-dasharray:2 10; animation:spin 26s linear infinite; }
+  .r-mid{ stroke:var(--cyan-dim); stroke-width:1.5; stroke-dasharray:40 14; animation:spin 12s linear infinite reverse; }
+  .r-arc{ stroke:var(--cyan); stroke-width:3; stroke-linecap:round; stroke-dasharray:120 300; filter:drop-shadow(0 0 6px var(--cyan)); animation:spin 7s cubic-bezier(.6,.1,.4,.9) infinite; }
+  #level{ stroke:var(--cyan); stroke-width:4; opacity:.9; filter:drop-shadow(0 0 10px var(--cyan)); transform-origin:150px 150px; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .core{ position:relative; width:118px; height:118px; border-radius:50%;
+    background:radial-gradient(circle at 50% 45%, #eafdff 0%, var(--cyan) 42%, #157d8d 78%, transparent 100%);
+    box-shadow:0 0 40px var(--cyan), 0 0 90px rgba(79,227,242,.4), inset 0 0 26px rgba(255,255,255,.6);
+    transition:transform .12s ease; }
+  .core::after{ content:""; position:absolute; inset:0; border-radius:50%;
+    background:radial-gradient(circle at 50% 30%, rgba(255,255,255,.9), transparent 55%); }
+
+  body.thinking .core{ animation:think 1s ease-in-out infinite; }
+  @keyframes think{ 0%,100%{ transform:scale(.86); filter:brightness(.9);} 50%{ transform:scale(1.08); filter:brightness(1.3);} }
+  body.listening .r-arc{ stroke:#7df0ff; }
+  body.speaking .reactor{ filter:drop-shadow(0 0 22px rgba(79,227,242,.5)); }
+
+  .wordmark{ position:fixed; top:30px; left:0; right:0; text-align:center; z-index:3;
+    font-size:15px; letter-spacing:9px; color:var(--ink); opacity:.65; }
+  #status{ font-size:21px; letter-spacing:2px; color:#bff4ff; min-height:28px; text-shadow:0 0 14px rgba(79,227,242,.5); }
+  #status::after{ content:""; display:block; width:54px; height:2px; margin:9px auto 0;
+    background:linear-gradient(90deg,transparent,var(--cyan),transparent); }
+  #reply{ font-size:20px; line-height:1.55; max-width:760px; min-height:30px; color:#e6fbff;
+    background:rgba(10,28,38,.45); border:1px solid var(--cyan-faint); border-radius:16px; padding:0 22px;
+    backdrop-filter:blur(3px); transition:padding .2s, min-height .2s; }
+  #reply:empty{ border-color:transparent; background:transparent; }
+  #reply:not(:empty){ padding:16px 22px; }
+  #said{ font-size:15px; opacity:.55; max-width:680px; min-height:20px; letter-spacing:.5px; }
+
+  .mic-btn{ margin-top:4px; padding:15px 38px; font-size:18px; border-radius:40px; letter-spacing:1px;
+    border:1px solid var(--cyan-dim); background:rgba(79,227,242,.08); color:#d7f6fc; cursor:pointer;
+    backdrop-filter:blur(4px); transition:background .15s, box-shadow .15s; }
+  .mic-btn:hover{ box-shadow:0 0 22px rgba(79,227,242,.3); }
+  .mic-btn:active{ background:rgba(79,227,242,.22); }
+
+  /* ---------- setup ---------- */
+  #setup{ position:fixed; inset:0; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:16px; padding:26px; background:radial-gradient(circle at 50% 40%, rgba(12,30,42,.97), rgba(4,8,14,.99)); }
+  #setup h1{ font-size:30px; letter-spacing:12px; color:#cbf6ff; margin:0; text-shadow:0 0 22px rgba(79,227,242,.5); }
+  #setup p{ opacity:.6; margin:0; font-size:14px; max-width:420px; }
+  #setup input{ width:min(430px,90vw); padding:14px 16px; border-radius:12px; border:1px solid #2c5467;
+    background:rgba(10,26,36,.8); color:#e6f6fb; font-size:15px; outline:none; }
+  #setup input:focus{ border-color:var(--cyan-dim); box-shadow:0 0 16px rgba(79,227,242,.25); }
+  #startBtn{ margin-top:10px; padding:16px 50px; font-size:19px; letter-spacing:3px; border-radius:40px; border:none;
+    background:linear-gradient(90deg,#2bb8cc,#4fe3f2); color:#03212a; font-weight:800; cursor:pointer;
+    box-shadow:0 0 30px rgba(79,227,242,.4); }
+  #err{ color:#ff9a9a; font-size:14px; min-height:18px; }
+  /* no on-screen captions of speech — keep the HUD clean, status only */
+  #reply, #said{ display:none !important; }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+  <div class="bg"></div><div class="grid"></div>
+  <div class="bracket tl"></div><div class="bracket tr"></div><div class="bracket bl"></div><div class="bracket br"></div>
+  <div class="wordmark">L U K A</div>
+
+  <div id="setup">
+    <h1>לוקה</h1>
+    <p>העוזרת האישית שלך. הזן את המפתחות פעם אחת — הם נשמרים במכשיר בלבד.</p>
+    <input id="xiKey" type="password" placeholder="ElevenLabs API Key (קול דנית)" autocomplete="off">
+    <input id="brainKey" type="password" placeholder="Anthropic (Claude) API Key (המוח)" autocomplete="off">
+    <input id="pairCode" class="hidden" type="text" inputmode="numeric" maxlength="6" placeholder="קוד בן 6 ספרות שנשלח לטלפון" autocomplete="one-time-code">
+    <button id="startBtn">הפעל את לוקה</button>
+    <div id="err"></div>
+    <p style="opacity:.45;font-size:13px">אמרי "היי לוקה" ואז את השאלה, או הקש על הכפתור.</p>
+  </div>
+
+  <div id="hud">
+    <div class="reactor">
+      <svg viewBox="0 0 300 300">
+        <circle class="ring r-outer" cx="150" cy="150" r="140"></circle>
+        <circle class="ring r-ticks" cx="150" cy="150" r="128"></circle>
+        <circle class="ring r-mid"   cx="150" cy="150" r="108"></circle>
+        <circle class="ring r-arc"   cx="150" cy="150" r="88"></circle>
+        <circle id="level" cx="150" cy="150" r="72"
+          fill="none" stroke-dasharray="452" stroke-dashoffset="452"
+          transform="rotate(-90 150 150)"></circle>
+      </svg>
+      <div class="core" id="core"></div>
+    </div>
+    <div id="status">—</div>
+    <div id="reply"></div>
+    <div id="said"></div>
+    <button class="mic-btn" id="askBtn">🎙️ דברי אליי</button>
+  </div>
+
+<script>
+"use strict";
+const VOICE_ID = "s0T0DT6EAPeX57MQpn3I";                       // Danit
+const TTS_MODELS = ["eleven_v3", "eleven_multilingual_v2"];     // v3 = correct Hebrew; NO turbo
+const BRAIN_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
+const WAKE = /היי\s*לוקה|הי\s*לוקה|לוקה/;
+const PERSONA =
+  "את לוּקה, עוזרת אישית בהשראת ה-JARVIS של טוני סטארק. מנומסת, רהוטה, רגועה וקרת רוח. " +
+  "שמך נהגה 'לוּ-קה' (Luka); כשאת כותבת אותו, כתבי תמיד 'לוּקה' עם שורוק. " +
+  "את מתייחסת אל המשתמש כאל הבוס שלך ופונה אליו 'אדוני' (לא בכל משפט). נאמנה, יעילה, עם שנינות יבשה ועדינה. " +
+  "דברי תמיד עברית תקנית ויפה, על עצמך בלשון נקבה ואל המשתמש בלשון זכר. " +
+  "תשובות קצרות, טבעיות וברורות, מתאימות להקראה בקול. בלי אימוג'ים, כוכביות או סימני עיצוב.";
+
+const $ = id => document.getElementById(id);
+const body = document.body;
+let brainKey = localStorage.getItem("brain_key") || "";
+let xiKey = localStorage.getItem("xi_key") || "";
+let history = [];
+let recog = null, running = false, speaking = false, armed = false, armTimer = null;
+
+function setStatus(t){ $("status").textContent = t; }
+function mode(m){ body.className = m || ""; }
+
+// ---------- Brain (Claude, direct) ----------
+const SERVER = /railway\.app$/.test(location.hostname) ? "" : "https://web-production-1b2f757c.up.railway.app";
+async function askBrain(text){
+  // Preferred path: the 24/7 server brain, which has the calendar, mail, WhatsApp and shared memory.
+  const tok = localStorage.getItem("luka_token") || "";
+  if(tok){
+    try{
+      const r = await fetch(SERVER + "/chat", { method:"POST",
+        headers:{ "content-type":"application/json", "x-luka-token":tok },
+        body: JSON.stringify({ text, voice:true }) });
+      if(r.ok){ const j = await r.json(); if(j && j.reply) return j.reply; }
+    }catch(e){ /* fall back to the direct brain below */ }
+  }
+  history.push({ role:"user", content:text });
+  history = history.slice(-10);
+  let lastErr = "";
+  for (const model of BRAIN_MODELS){
+    try{
+      const r = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{ "x-api-key":brainKey, "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true", "content-type":"application/json" },
+        body: JSON.stringify({ model, max_tokens:320, system:PERSONA, messages:history })
+      });
+      if(!r.ok){ lastErr = model+" HTTP "+r.status; continue; }
+      const j = await r.json();
+      const block = (j.content||[]).find(b => b && b.type==="text");
+      const reply = (block && block.text ? block.text : "").trim();
+      if(reply){ history.push({ role:"assistant", content:reply }); return reply; }
+      lastErr = model+" empty";
+    }catch(e){ lastErr = model+" "+(e.message||e); }
+  }
+  throw new Error(lastErr || "brain failed");
+}
+
+// ---------- Voice (ElevenLabs eleven_v3) + reactive visualizer ----------
+let audioCtx = null, analyser = null, levelRAF = 0;
+const LVL = $("level"), CORE = $("core"), LVL_LEN = 452;
+function startViz(srcNode){
+  try{
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 128;
+    srcNode.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const loop = ()=>{
+      analyser.getByteFrequencyData(data);
+      let sum=0; for(let i=0;i<data.length;i++) sum+=data[i];
+      const amp = Math.min(1, (sum/data.length)/90);           // 0..1
+      LVL.setAttribute("stroke-dashoffset", String(LVL_LEN*(1-amp)));
+      CORE.style.transform = "scale(" + (0.92 + amp*0.35) + ")";
+      levelRAF = requestAnimationFrame(loop);
+    };
+    loop();
+  }catch(e){}
+}
+function stopViz(){ cancelAnimationFrame(levelRAF); LVL.setAttribute("stroke-dashoffset", String(LVL_LEN)); CORE.style.transform=""; }
+
+async function speak(text){
+  const buf = await ttsBuf(text);
+  if(!buf) throw new Error("tts failed");
+  await playAudio(buf);
+}
+function playAudio(buf){
+  return new Promise((resolve)=>{
+    try{
+      const blob = new Blob([buf], { type:"audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      speaking = true; mode("speaking"); stopRecog();          // don't let her hear herself
+      try{
+        audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+        if(audioCtx.state==="suspended") audioCtx.resume();
+        const src = audioCtx.createMediaElementSource(audio);
+        src.connect(audioCtx.destination);
+        startViz(src);
+      }catch(e){ /* viz unavailable — audio still plays via audio.play() below */ }
+      const done = ()=>{ URL.revokeObjectURL(url); stopViz(); speaking=false; resolve();
+        mode(""); setStatus("מקשיבה…"); ensureRecog(); };
+      audio.onended = done; audio.onerror = done;
+      audio.play().catch(()=>done());
+    }catch(e){ speaking=false; resolve(); ensureRecog(); }
+  });
+}
+
+// ---------- Handle a heard question ----------
+async function ttsBuf(text){
+  if(!xiKey){                                   // no key in this browser: the server speaks for her
+    try{
+      const r = await fetch(SERVER + "/tts", { method:"POST",
+        headers:{ "content-type":"application/json", "x-luka-token": localStorage.getItem("luka_token") || "" },
+        body: JSON.stringify({ text }) });
+      if(r.ok) return await r.arrayBuffer();
+    }catch(e){}
+    return null;
+  }
+  for (const model of TTS_MODELS){
+    try{
+      const r = await fetch("https://api.elevenlabs.io/v1/text-to-speech/"+VOICE_ID+"?output_format=mp3_44100_128",{
+        method:"POST", headers:{ "xi-api-key":xiKey, "content-type":"application/json" },
+        body: JSON.stringify({ text, model_id:model, voice_settings:{ stability:0.4, similarity_boost:0.8 } }) });
+      if(r.ok) return await r.arrayBuffer();
+    }catch(e){}
+  }
+  return null;
+}
+function playClip(buf){            // plays one clip; does not touch listening state
+  return new Promise((resolve)=>{
+    try{
+      const url = URL.createObjectURL(new Blob([buf], { type:"audio/mpeg" }));
+      const audio = new Audio(url);
+      try{
+        audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+        if(audioCtx.state==="suspended") audioCtx.resume();
+        const src = audioCtx.createMediaElementSource(audio);
+        src.connect(audioCtx.destination); cancelAnimationFrame(levelRAF); startViz(src);
+      }catch(e){}
+      const done = ()=>{ URL.revokeObjectURL(url); resolve(); };
+      audio.onended = done; audio.onerror = done;
+      audio.play().catch(done);
+    }catch(e){ resolve(); }
+  });
+}
+async function handleStream(text){
+  const tok = localStorage.getItem("luka_token"); if(!tok) return false;
+  const r = await fetch(SERVER + "/chat/stream", { method:"POST",
+    headers:{ "content-type":"application/json", "x-luka-token":tok }, body: JSON.stringify({ text }) });
+  if(!r.ok || !r.body) return false;
+  let got = false, started = false, chain = Promise.resolve();
+  const say = (sentence)=>{
+    got = true;
+    const p = ttsBuf(sentence);                       // start making the audio right away
+    chain = chain.then(async ()=>{
+      const buf = await p; if(!buf) return;
+      if(!started){ started = true; speaking = true; mode("speaking"); setStatus("מדברת…"); stopRecog(); }
+      await playClip(buf);
+    });
+  };
+  try{
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for(;;){
+      const { done, value } = await reader.read(); if(done) break;
+      buf += dec.decode(value, { stream:true });
+      let i; while((i = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if(!line) continue;
+        let o; try{ o = JSON.parse(line); }catch(e){ continue; }
+        if(o.s) say(o.s);
+      }
+    }
+    await chain;
+  }finally{
+    if(started){ stopViz(); speaking = false; mode(""); setStatus("מקשיבה…"); ensureRecog(); }
+  }
+  if(got && !started){ mode(""); setStatus("מקשיבה…"); }   // answer arrived but audio failed
+  return got;
+}
+async function handle(text){
+  if(!text || speaking) return;
+  $("said").textContent = "אדוני: " + text;
+  $("reply").textContent = "";
+  mode("thinking"); setStatus("חושבת…");
+  // Fast path: the tablet agent streams the answer and she starts speaking the first sentence
+  // while the rest is still being written. Any failure before she speaks falls back below.
+  try{ if(await handleStream(text)) return; }catch(e){}
+  try{
+    const reply = await askBrain(text);
+    $("reply").textContent = reply;
+    setStatus("מדברת…");
+    await speak(reply);
+  }catch(e){
+    setStatus("סליחה אדוני, הייתה תקלה רגעית.");
+    mode(""); ensureRecog();
+  }
+}
+
+// ---------- Speech recognition with robust auto-restart ----------
+function buildRecog(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ setStatus("הדפדפן לא תומך בזיהוי דיבור."); return null; }
+  const r = new SR();
+  r.lang = "he-IL"; r.continuous = true; r.interimResults = true;
+  r.onresult = (ev)=>{
+    let finalText = "";
+    for(let i=ev.resultIndex;i<ev.results.length;i++){
+      if(ev.results[i].isFinal) finalText += ev.results[i][0].transcript;
+    }
+    finalText = finalText.trim();
+    if(!finalText || speaking) return;
+    if(armed){ clearTimeout(armTimer); armed=false; handle(finalText); }
+    else if(WAKE.test(finalText)){
+      const after = finalText.replace(WAKE,"").trim();
+      if(after.length>=2){ handle(after); }
+      else{ armed=true; setStatus("כן אדוני?"); clearTimeout(armTimer);
+            armTimer=setTimeout(()=>{ armed=false; setStatus("מקשיבה…"); },9000); }
+    }
+  };
+  r.onend = ()=>{ running=false; if(!speaking) setTimeout(ensureRecog,300); };
+  r.onerror = (e)=>{
+    running=false;
+    if(e && (e.error==="not-allowed" || e.error==="service-not-allowed")){
+      setStatus("אין הרשאת מיקרופון. אשר/י גישה ורענן/י."); return;
+    }
+    if(!speaking) setTimeout(ensureRecog,700);                 // recover from network/no-speech/aborted
+  };
+  return r;
+}
+function ensureRecog(){
+  if(!recog || running || speaking) return;
+  try{ recog.start(); running=true; if(!armed) setStatus("מקשיבה…"); }
+  catch(e){ running=false; setTimeout(ensureRecog,800); }
+}
+function stopRecog(){ try{ recog && recog.stop(); }catch(e){} running=false; }
+
+// ---------- Manual ask button ----------
+$("askBtn").addEventListener("click", ()=>{
+  if(speaking) return;
+  armed=true; setStatus("כן אדוני?"); clearTimeout(armTimer);
+  armTimer=setTimeout(()=>{ armed=false; setStatus("מקשיבה…"); },9000);
+  stopRecog(); setTimeout(ensureRecog,200);
+});
+
+// ---------- Startup ----------
+async function pollUpdates(){
+  const tok = localStorage.getItem("luka_token"); if(!tok || speaking) return;
+  try{
+    const r = await fetch(SERVER + "/updates", { headers:{ "x-luka-token":tok } });
+    if(!r.ok) return;
+    const j = await r.json();
+    const text = (j.items||[]).map(i => i.text).filter(Boolean).join(" ");
+    if(text) await speak(text);
+  }catch(e){}
+}
+function showHud(){
+  setInterval(pollUpdates, 20000);
+  $("setup").classList.add("hidden");
+  recog = buildRecog(); ensureRecog(); setStatus("מקשיבה…");
+  // No spoken greeting: she waits silently for her name. Unlock audio now (inside the tap).
+  try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); }catch(e){}
+}
+let pairing = false;
+async function begin(){
+  const xk = ($("xiKey").value.trim()) || xiKey;
+  const bk = ($("brainKey").value.trim()) || brainKey;
+  xiKey=xk; brainKey=bk;
+  if(xk) localStorage.setItem("xi_key", xiKey);
+  if(bk) localStorage.setItem("brain_key", bk);
+  localStorage.setItem("tts_model", "eleven_v3");
+  if(localStorage.getItem("luka_token")){ showHud(); return; }
+  // Not linked to the server brain yet (calendar, mail, WhatsApp): pair with a one-time code.
+  const code = $("pairCode").value.trim();
+  try{
+    if(!pairing || !code){
+      const r = await fetch(SERVER + "/pair/request", { method:"POST" });
+      if(!r.ok && r.status !== 429){ $("err").textContent = "לא הצלחתי לשלוח קוד. נסה שוב בעוד דקה."; return; }
+      pairing = true; $("pairCode").classList.remove("hidden"); $("pairCode").focus();
+      $("err").textContent = "שלחתי קוד בן 6 ספרות לטלפון שלך. הזן אותו ולחץ שוב על הכפתור.";
+      return;
+    }
+    const r = await fetch(SERVER + "/pair/confirm", { method:"POST",
+      headers:{ "content-type":"application/json" }, body: JSON.stringify({ code }) });
+    if(!r.ok){ $("err").textContent = "הקוד שגוי או שפג תוקפו. נסה שוב."; return; }
+    const j = await r.json();
+    localStorage.setItem("luka_token", j.token);
+    $("err").textContent = "";
+    showHud();
+  }catch(e){ $("err").textContent = "אין חיבור לשרת של לוקה. נסה שוב."; }
+}
+$("startBtn").addEventListener("click", begin);
+if(SERVER === ""){ $("xiKey").classList.add("hidden"); $("brainKey").classList.add("hidden"); $("setup").querySelector("p").textContent = localStorage.getItem("luka_token") ? "הכול מוכן. הקש כדי להתחיל." : "הקש כדי להתחיל. בפעם הראשונה יישלח קוד לטלפון שלך."; }
+if(brainKey) $("brainKey").value = brainKey;
+if(xiKey) $("xiKey").value = xiKey;
+if(brainKey && xiKey){ $("setup").querySelector("p").textContent = "הכול מוכן. הקש כדי להתחיל."; }
+</script>
+</body>
+</html>

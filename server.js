@@ -114,6 +114,21 @@ app.post('/chat', async (req, res) => {
   }
 });
 
+// ---------- TABLET PAGE served from this server (no keys needed in the browser) ----------
+app.get('/luka', (_req, res) => res.sendFile(path.resolve('./hud.html')));
+// Voice for the tablet page: same voice.js as everywhere, key stays on the server.
+app.post('/tts', async (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  const text = (req.body?.text || '').toString().trim().slice(0, 700);
+  if (!text) return res.status(400).json({ error: 'empty' });
+  try {
+    const id = await synthesize(text);
+    const p = id && audioPath(id);
+    if (!p) return res.status(502).json({ error: 'tts' });
+    res.type('audio/mpeg').sendFile(path.resolve(p));
+  } catch (e) { res.status(502).json({ error: 'tts' }); }
+});
+
 // ---------- TABLET AGENT: streamed chat (sentence by sentence) ----------
 // Separate from the phone agent. Loaded lazily so that a fault here can never take the
 // server (and with it the phone calls) down.
@@ -181,7 +196,7 @@ app.all('/convo', (req, res) => {
 // INCOMING call: the owner dials Luka's number whenever he likes and talks to her. Only his own
 // phone is answered; anyone else is rejected. After the greeting it joins the same turn loop.
 let helloId = null;
-app.post('/voice/incoming', async (req, res) => {
+app.post('/incoming-call', async (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const digits = x => (x || '').toString().replace(/\D/g, '');
   const from = digits(req.body?.From), owner = digits(process.env.OWNER_PHONE);

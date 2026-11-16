@@ -98,16 +98,19 @@ export async function streamOnce(messages, system, tools, onText) {
 // by whitespace (so "17.11" and "15:15" stay whole) or a line break; very short fragments are
 // merged with what follows so she doesn't speak in two-word clips.
 export function makeSentenceSplitter(emit, minLen = 25) {
-  let buf = '';
+  let buf = '', first = true;
   return {
     push(t) {
       buf += t;
       for (;;) {
-        const re = /[.!?…]["')\]]?\s+|\n+/g; let m, cut = -1;
-        while ((m = re.exec(buf))) { if (m.index + m[0].length >= minLen) { cut = m.index + m[0].length; break; } }
+        // The first chunk may also end at a comma (after a few words) so she starts talking sooner.
+        const re = first ? /[.!?…,]["')\]]?\s+|\n+/g : /[.!?…]["')\]]?\s+|\n+/g;
+        const need = first ? 14 : minLen;
+        let m, cut = -1;
+        while ((m = re.exec(buf))) { if (m.index + m[0].length >= need) { cut = m.index + m[0].length; break; } }
         if (cut < 0) break;
         const piece = buf.slice(0, cut).trim(); buf = buf.slice(cut);
-        if (piece) emit(piece);
+        if (piece) { emit(piece); first = false; }
       }
     },
     flush() { const piece = buf.trim(); buf = ''; if (piece) emit(piece); }
