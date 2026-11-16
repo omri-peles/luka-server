@@ -6,7 +6,7 @@ import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
-import { openOnComputer, closeOnComputer, computerOnline } from './computer.js';
+import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
   {
@@ -16,8 +16,18 @@ const COMPUTER_TOOLS = [
   },
   {
     name: 'close_on_computer',
-    description: 'סגירת לשוניות במחשב של אדוני שאת פתחת. what: "last" לאחרונה שנפתחה, "all" לכולן, או מילים מתוך השם שנתת ללשונית כשפתחת אותה (למשל שם הזמר). התוצאה שחוזרת היא מה שקרה בפועל במחשב: דווחי לאדוני בדיוק אותה, ואל תאמרי שנסגר אם לא נסגר. אפשר לסגור רק לשוניות שאת פתחת; לשוניות שאדוני פתח בעצמו אי אפשר.',
+    description: 'סגירת לשוניות בדפדפן של המחשב של אדוני. what: "current" ללשונית שפתוחה כרגע מול העיניים, או מילה או שתיים מתוך שם הלשונית (למשל: עומר אדם, ויקיפדיה, YouTube). כתבי רק את המילים המזהות, בלי המילים לשונית או טאב. התוצאה שחוזרת היא מה שקרה בפועל במחשב: דווחי לאדוני בדיוק אותה, ואל תאמרי שנסגר אם לא נסגר.',
     input_schema: { type: 'object', properties: { what: { type: 'string' } }, required: ['what'] }
+  },
+  {
+    name: 'open_app_on_computer',
+    description: 'פתיחת אפליקציה במק של אדוני, לפי שמה באנגלית כפי שהיא נקראת במק (למשל: Spotify, Notes, Calculator, WhatsApp, Google Chrome).',
+    input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
+  },
+  {
+    name: 'set_computer_volume',
+    description: 'קביעת עוצמת הקול במק של אדוני, מספר בין 0 (שקט) ל-100.',
+    input_schema: { type: 'object', properties: { level: { type: 'number' } }, required: ['level'] }
   }
 ];
 
@@ -62,7 +72,9 @@ async function buildSystem(s, connected) {
     sys += "\n\nהודעות וואטסאפ אחרונות שאדוני קיבל (יש לך גישה לקרוא אותן):\n" +
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
-  sys += "\n\nהמחשב של אדוני " + (computerOnline() ? "מחובר: את יכולה לפתוח בו אתרים בכלי open_on_computer ולסגור לשוניות שפתחת בכלי close_on_computer." : "לא מחובר כרגע (הדף 'היד של לוקה' לא פתוח בו).");
+  sys += "\n\nהמחשב של אדוני " + (macOnline() ? "מחובר דרך תוכנת העזר: את יכולה לפתוח בו אתרים (open_on_computer), לסגור כל לשונית בכרום לפי שמה (close_on_computer), לפתוח אפליקציות (open_app_on_computer) ולקבוע עוצמת קול (set_computer_volume). פעולות אחרות במחשב עדיין לא אפשריות."
+    : computerOnline() ? "מחובר דרך הדף בלבד: את יכולה לפתוח בו אתרים (open_on_computer) ולסגור רק לשוניות שאת פתחת (close_on_computer). אפליקציות ועוצמת קול לא זמינות עד שתוכנת העזר תותקן במק."
+    : "לא מחובר כרגע.");
   const mem = memoryText();
   sys += "\n\nהזיכרון האישי שלך על אדוני (נשמר בין שיחות). השתמשי בו בתשובותייך, ושמרי בו דברים חדשים בכלי remember:" + (mem || "\n(עדיין ריק)");
   sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה. אל תתקני ואל תתנצלי על תשובות קודמות אלא אם אדוני שאל על כך. התאריך והשעה שלמעלה הם שעון חי ומדויק לרגע זה: כשאת נשאלת מה השעה או מה התאריך, עני לפיהם בביטחון, גם אם בשיחה הקודמת נאמרה שעה אחרת.";
@@ -174,6 +186,8 @@ export async function chatStream(text, onSentence) {
             : b.name === 'forget' ? forget(inp.text)
             : b.name === 'open_on_computer' ? await openOnComputer(inp.url, inp.label)
             : b.name === 'close_on_computer' ? await closeOnComputer(inp.what)
+            : b.name === 'open_app_on_computer' ? await openAppOnComputer(inp.name)
+            : b.name === 'set_computer_volume' ? await volumeOnComputer(inp.level)
             : await runTool(b.name, inp);
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
         }

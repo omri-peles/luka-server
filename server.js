@@ -9,7 +9,8 @@ import { chat } from './brain.js';
 import { audioPath, synthesize, filler, warmFillers } from './voice.js';
 import crypto from 'crypto';
 import twilio from 'twilio';
-import { takeAll, report } from './computer.js';
+import { takeAll, report, takeMac } from './computer.js';
+import fs from 'fs';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -171,6 +172,27 @@ app.post('/computer/result', (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
   report((req.body && req.body.id) || '', (req.body && req.body.text) || '');
   res.json({ ok: true });
+});
+
+// ---------- LUKA'S HAND as a small background program on the Mac ----------
+// The scripts are public (no secrets inside); the helper itself pairs with a one-time code.
+for (const f of ['install.sh', 'agent.sh', 'uninstall.sh']) {
+  app.get('/mac/' + f, (req, res) => {
+    try {
+      const base = 'https://' + req.get('host');
+      res.type('text/plain').send(fs.readFileSync(path.resolve('./mac-' + f), 'utf8').replace(/__SERVER__/g, base));
+    } catch (e) { res.status(404).end(); }
+  });
+}
+app.get('/mac/next', async (req, res) => {
+  if (!authOk(req)) return res.status(401).end();
+  if (req.query.probe) return res.type('text/plain').send('');
+  res.type('text/plain').send(await takeMac());
+});
+app.post('/mac/result', (req, res) => {
+  if (!authOk(req)) return res.status(401).end();
+  report((req.body && req.body.id) || '', (req.body && req.body.text) || '');
+  res.type('text/plain').send('ok');
 });
 
 // ---------- TABLET AGENT: streamed chat (sentence by sentence) ----------
