@@ -8,6 +8,8 @@ import { authUrl, handleCallback, isConnected } from './google.js';
 import { chat } from './brain.js';
 import { audioPath, synthesize, filler, warmFillers } from './voice.js';
 import crypto from 'crypto';
+import twilio from 'twilio';
+import { takeAll } from './computer.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -30,6 +32,35 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 const TOKEN = () => process.env.TABLET_TOKEN || '';
+
+// ---------- Twilio signature guard ----------
+// The call and WhatsApp webhooks must only accept requests really sent by Twilio. To make sure
+// this can never lock Twilio itself out, each route starts in OBSERVE mode and only begins
+// rejecting unsigned requests after it has seen one correctly signed request on that same
+// route (which proves the check is configured right). TWILIO_SIG_ENFORCE=off disables blocking.
+const TW_PATHS = /^\/(convo|incoming-call|whatsapp|voice)(\/|$)/;
+const sigStats = { ok: 0, bad: 0, blocked: 0 };
+function validTwilio(req) {
+  const sig = req.get('x-twilio-signature'), token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sig || !token) return false;
+  const params = req.method === 'POST' ? (req.body || {}) : {};
+  const urls = [(process.env.PUBLIC_URL || '') + req.originalUrl,
+    `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}${req.originalUrl}`];
+  return urls.some(u => { try { return twilio.validateRequest(token, sig, u, params); } catch { return false; } });
+}
+app.use((req, res, next) => {
+  if (!TW_PATHS.test(req.path)) return next();
+  const key = req.method + ' ' + req.path.replace(/^\/voice\/.*/, '/voice/:aid');
+  const armed = get('twilioSigArmed') || {};
+  if (validTwilio(req)) {
+    sigStats.ok++;
+    if (!armed[key]) { armed[key] = true; set('twilioSigArmed', armed); console.log('[sig] armed:', key); }
+    return next();
+  }
+  sigStats.bad++;
+  if (armed[key] && process.env.TWILIO_SIG_ENFORCE !== 'off') { sigStats.blocked++; return res.status(403).send('forbidden'); }
+  next();
+});
 
 function authOk(req) {
   const t = req.query.token || req.body?.token || req.get('x-luka-token');
@@ -65,7 +96,8 @@ app.get('/', (_req, res) => res.send('Luka is awake.'));
 app.get('/health', (_req, res) => res.json({
   ok: true,
   google: isConnected(),
-  pendingUpdates: (get('updates') || []).length
+  pendingUpdates: (get('updates') || []).length,
+  twilioSignature: { ...sigStats, armedRoutes: Object.keys(get('twilioSigArmed') || {}) }
 }));
 
 // ---------- Google OAuth ----------
@@ -127,6 +159,13 @@ app.post('/tts', async (req, res) => {
     if (!p) return res.status(502).json({ error: 'tts' });
     res.type('audio/mpeg').sendFile(path.resolve(p));
   } catch (e) { res.status(502).json({ error: 'tts' }); }
+});
+
+// ---------- LUKA'S HAND on the computer ----------
+app.get('/hand', (_req, res) => res.sendFile(path.resolve('./hand.html')));
+app.get('/computer/next', (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  res.json({ items: takeAll() });
 });
 
 // ---------- TABLET AGENT: streamed chat (sentence by sentence) ----------
