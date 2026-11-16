@@ -8,7 +8,7 @@ import { authUrl, handleCallback, isConnected } from './google.js';
 import { chat } from './brain.js';
 import { audioPath, synthesize, filler, warmFillers } from './voice.js';
 import crypto from 'crypto';
-import { whatsappOwner, smsOwner } from './phone.js';
+import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
 
@@ -263,6 +263,12 @@ app.post('/whatsapp', async (req, res) => {
   if (owner && from && from !== owner) {
     res.type('text/xml').send('<Response/>');
     return;
+  }
+  // "Call me": the owner writes to Luka and she rings him right away (no international dialing
+  // needed on his side). Works at any hour, since he asked for it himself.
+  if (/תתקשרי|התקשרי|תצלצלי|צלצלי אלי/.test(body)) {
+    callOwner('כן אדוני, אני מקשיבה.').then(r => { if (!r.ok) console.warn('[call-me] failed:', r.reason); });
+    return res.type('text/xml').send('<Response><Message>מתקשרת אליך עכשיו, אדוני.</Message></Response>');
   }
   let reply = 'רגע אדוני, אני כאן.';
   try { if (body) reply = await chat(body); } catch { reply = 'סליחה אדוני, יש לי קושי רגעי. נסה שוב.'; }
