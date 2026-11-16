@@ -29,7 +29,7 @@ export async function callOwner(text) {
       // ElevenLabs failed — still make it conversational using Twilio's Hebrew TTS for the opener.
       const safe = text.replace(/[<&]/g, ' ');
       const twiml =
-        `<Response><Say language="he-IL">${safe}</Say>` +
+        `<Response><Pause length="1"/><Say language="he-IL">${safe}</Say>` +
         `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/convo/turn" method="POST"></Gather>` +
         `<Redirect method="POST">${base}/convo/turn</Redirect></Response>`;
       await c.calls.create({ to, from, twiml });

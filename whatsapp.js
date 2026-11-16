@@ -9,6 +9,7 @@
 import path from 'path';
 import { webcrypto } from 'node:crypto';
 import { handleItem } from './proactive.js';
+import { load, save } from './store.js';
 
 // Baileys relies on the global Web Crypto API (globalThis.crypto). On Node 18 it is NOT exposed
 // as a global by default (it only became global in Node 20), so Baileys throws
@@ -104,6 +105,12 @@ export async function startWhatsApp() {
           if (!body.trim()) continue;                          // text messages only
           const from = m.pushName || jid.split('@')[0] || 'איש קשר';
           const summary = `הודעת וואטסאפ חדשה מ-${from}: ${body}`;
+          // Keep the last few incoming messages so Luka can answer "what did X write me?" in chat.
+          try {
+            const s = load();
+            s.waRecent = (s.waRecent || []).concat({ from, body: body.slice(0, 300), at: Date.now() }).slice(-20);
+            save();
+          } catch { /* best effort */ }
           // Reuse the proactive pipeline: classify urgency, update the tablet, and only reach
           // his phone when it's urgent. Urgent keywords ("דחוף", "תענה"…) force a call.
           await handleItem('whatsapp', 'seenWhatsappIds', m.key.id, summary, { forceHigh: URGENT_RE.test(body) });

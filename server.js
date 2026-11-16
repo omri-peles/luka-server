@@ -15,6 +15,18 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // Twilio posts form-encoded
 
+// The tablet HUD (hosted on Netlify) talks to this server from the browser, so allow its origin.
+const TABLET_ORIGIN = process.env.TABLET_ORIGIN || 'https://grand-alfajores-b0e55e.netlify.app';
+app.use((req, res, next) => {
+  if (req.get('origin') === TABLET_ORIGIN) {
+    res.set('Access-Control-Allow-Origin', TABLET_ORIGIN);
+    res.set('Access-Control-Allow-Headers', 'content-type, x-luka-token');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const TOKEN = () => process.env.TABLET_TOKEN || '';
 
@@ -105,9 +117,11 @@ function gatherXml(base) {
        + `<Redirect method="POST">${base}/convo/turn</Redirect>`;
 }
 function speakXml(base, aid, text) {
-  if (aid) return `<Play>${base}/audio/${aid}.mp3</Play>`;
+  // The leading <Pause> is essential: on an answered call Twilio drops the start of <Play>
+  // without a brief beat first, which came across as total silence.
+  if (aid) return `<Pause length="1"/><Play>${base}/audio/${aid}.mp3</Play>`;
   const safe = (text || '').replace(/[<&]/g, ' ');
-  return `<Say language="he-IL">${safe}</Say>`;
+  return `<Pause length="1"/><Say language="he-IL">${safe}</Say>`;
 }
 
 // First turn: play Luka's opening line (pre-synthesized, passed as ?aid=), then listen.

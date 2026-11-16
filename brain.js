@@ -134,6 +134,11 @@ export async function chat(text) {
 
   const connected = isConnected();
   if (connected) sys += await liveContext();
+  const wa = (s.waRecent || []).slice(-8);
+  if (wa.length) {
+    sys += "\n\nהודעות וואטסאפ אחרונות שאדוני קיבל (יש לך גישה לקרוא אותן):\n" +
+      wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
+  }
 
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
