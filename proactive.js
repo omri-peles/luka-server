@@ -4,7 +4,7 @@
 import { load, save, remember, get } from './store.js';
 import { newImportantEmails, upcomingEvents, isConnected } from './google.js';
 import { classify } from './brain.js';
-import { callOwner, whatsappOwner } from './phone.js';
+import { callOwner, smsOwner, whatsappOwner } from './phone.js';
 import { cleanup } from './voice.js';
 
 const TZ = () => process.env.TIMEZONE || 'Asia/Jerusalem';
@@ -54,16 +54,20 @@ async function handleItem(kind, idKey, id, summary) {
   if (presentAtTablet()) return;
 
   // He's away from the tablet, so reach his phone. Within the allowed hours a
-  // high-urgency item earns a real call; everything else (and any call failure)
-  // goes out as a WhatsApp message so the update is never lost.
+  // high-urgency item earns a real phone call; everything else (and any call
+  // failure) goes out as an SMS — reliable anytime — with WhatsApp as a last resort.
   if (verdict.urgency === 'high' && withinCallWindow()) {
     const res = await callOwner(verdict.say);
     if (res.ok) { console.log('[proactive] called owner'); return; }
-    console.warn('[proactive] call unavailable, falling back to whatsapp:', res.reason);
+    console.warn('[proactive] call unavailable, falling back:', res.reason);
   }
-  const wr = await whatsappOwner(verdict.say);
-  if (!wr.ok) console.warn('[proactive] whatsapp failed:', wr.reason);
-  else console.log('[proactive] whatsapp sent to owner');
+  let r = await smsOwner(verdict.say);
+  if (!r.ok) {
+    console.warn('[proactive] sms failed, trying whatsapp:', r.reason);
+    r = await whatsappOwner(verdict.say);
+  }
+  if (!r.ok) console.warn('[proactive] all channels failed:', r.reason);
+  else console.log('[proactive] proactive message delivered to owner');
 }
 
 let running = false;

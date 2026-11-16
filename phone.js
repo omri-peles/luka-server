@@ -37,6 +37,21 @@ export async function callOwner(text) {
   }
 }
 
+// Sends a plain SMS from Luka to the owner (via the Twilio phone number).
+// Reliable anytime (no 24h window like WhatsApp). Returns { ok, reason }.
+export async function smsOwner(text) {
+  const c = client();
+  const from = process.env.TWILIO_FROM_NUMBER;
+  const to = process.env.OWNER_PHONE;
+  if (!c || !from || !to) return { ok: false, reason: 'sms not configured' };
+  try {
+    await c.messages.create({ from, to, body: text });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: String(e.message || e) };
+  }
+}
+
 // Sends a WhatsApp message from Luka to the owner (via Twilio WhatsApp).
 export async function whatsappOwner(text) {
   const c = client();
