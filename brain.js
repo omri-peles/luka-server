@@ -212,7 +212,7 @@ export async function chat(text, opts = {}) {
   let reply = '';
   const tools = connected ? [...TOOLS, WEATHER_TOOL, ...WA_TOOLS] : [WEATHER_TOOL, ...WA_TOOLS];
   for (let i = 0; i < 4; i++) {
-    const j = await callRaw(messages, { system: sys, tools, maxTokens: opts.phone ? 220 : 500 });
+    const j = await callRaw(messages, { system: sys, tools, maxTokens: 600 });
     const content = j.content || [];
     if (j.stop_reason === 'tool_use') {
       const results = [];
