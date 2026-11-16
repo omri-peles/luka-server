@@ -6,7 +6,7 @@ import path from 'path';
 import { load, save, set, get } from './store.js';
 import { authUrl, handleCallback, isConnected } from './google.js';
 import { chat } from './brain.js';
-import { audioPath, synthesize } from './voice.js';
+import { audioPath, synthesize, filler, warmFillers } from './voice.js';
 import crypto from 'crypto';
 import { whatsappOwner, smsOwner } from './phone.js';
 import { tick } from './proactive.js';
@@ -138,15 +138,17 @@ app.all('/voice/:aid', (req, res) => {
 // we run it through her brain (shared memory + persona), speak the reply in her real voice,
 // then listen again — until he says goodbye.
 function gatherXml(base) {
-  return `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/convo/turn" method="POST"></Gather>`
+  // speechTimeout=1: answer one second after he stops talking (auto waited noticeably longer).
+  return `<Gather input="speech" language="he-IL" speechTimeout="1" action="${base}/convo/turn" method="POST"></Gather>`
        + `<Redirect method="POST">${base}/convo/turn</Redirect>`;
 }
-function speakXml(base, aid, text) {
-  // The leading <Pause> is essential: on an answered call Twilio drops the start of <Play>
-  // without a brief beat first, which came across as total silence.
-  if (aid) return `<Pause length="1"/><Play>${base}/audio/${aid}.mp3</Play>`;
+function speakXml(base, aid, text, lead = false) {
+  // The leading <Pause> is needed only right after the call is answered (Twilio drops the start
+  // of the first <Play> otherwise). Mid-call it would just be a second of dead air.
+  const p = lead ? '<Pause length="1"/>' : '';
+  if (aid) return `${p}<Play>${base}/audio/${aid}.mp3</Play>`;
   const safe = (text || '').replace(/[<&]/g, ' ');
-  return `<Pause length="1"/><Say language="he-IL">${safe}</Say>`;
+  return `${p}<Say language="he-IL">${safe}</Say>`;
 }
 
 // First turn: play Luka's opening line (pre-synthesized, passed as ?aid=), then listen.
@@ -154,30 +156,49 @@ function speakXml(base, aid, text) {
 app.all('/convo', (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const aid = (req.query.aid || req.body?.aid || '').toString().replace(/[^a-z0-9]/gi, '');
-  res.type('text/xml').send(`<Response>${speakXml(base, aid || null, '')}${gatherXml(base)}</Response>`);
+  res.type('text/xml').send(`<Response>${speakXml(base, aid || null, '', true)}${gatherXml(base)}</Response>`);
 });
 
-// Every following turn: Twilio posts what the owner said (SpeechResult); Luka thinks, replies, listens again.
+// Each turn is split in two so the line never goes silent:
+//   /convo/turn   -> start thinking in the background, instantly play a short "one sec" clip
+//   /convo/answer -> wait for the answer that is already in flight, play it, listen again
+const convoJobs = new Map();
 app.post('/convo/turn', async (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const speech = (req.body?.SpeechResult || '').toString().trim();
   try {
     if (!speech) {
-      const t = 'אדוני, אני עדיין כאן. במה אוכל לעזור?';
+      const t = 'אדוני, אני עדיין כאן.';
       const aid = await synthesize(t);
       return res.type('text/xml').send(`<Response>${speakXml(base, aid, t)}${gatherXml(base)}</Response>`);
     }
     if (/להתראות|תודה לוקה|ביי לוקה|נתראה|סיימתי|זה הכל|זהו לעכשיו/.test(speech)) {
-      const t = 'בשמחה אדוני. אני כאן מתי שתצטרך. להתראות.';
+      const t = 'בשמחה אדוני. להתראות.';
       const aid = await synthesize(t);
       return res.type('text/xml').send(`<Response>${speakXml(base, aid, t)}<Hangup/></Response>`);
     }
-    let reply;
-    try { reply = await chat(speech); } catch { reply = 'סליחה אדוני, יש לי קושי רגעי. נסה שוב.'; }
-    const aid = await synthesize(reply);
-    res.type('text/xml').send(`<Response>${speakXml(base, aid, reply)}${gatherXml(base)}</Response>`);
+    const job = crypto.randomBytes(8).toString('hex');
+    convoJobs.set(job, (async () => {
+      let reply;
+      try { reply = await chat(speech, { phone: true }); } catch { reply = 'סליחה אדוני, נסה שוב.'; }
+      return { reply, aid: await synthesize(reply) };
+    })());
+    setTimeout(() => convoJobs.delete(job), 120000);
+    const f = await filler();
+    res.type('text/xml').send(`<Response>${f ? `<Play>${base}/audio/${f}.mp3</Play>` : ''}<Redirect method="POST">${base}/convo/answer?job=${job}</Redirect></Response>`);
   } catch (e) {
     res.type('text/xml').send(`<Response><Say language="he-IL">סליחה אדוני, הייתה תקלה.</Say><Hangup/></Response>`);
+  }
+});
+app.post('/convo/answer', async (req, res) => {
+  const base = process.env.PUBLIC_URL || '';
+  try {
+    const p = convoJobs.get((req.query.job || '').toString());
+    if (!p) return res.type('text/xml').send(`<Response>${gatherXml(base)}</Response>`);
+    const { reply, aid } = await p;
+    res.type('text/xml').send(`<Response>${speakXml(base, aid, reply)}${gatherXml(base)}</Response>`);
+  } catch (e) {
+    res.type('text/xml').send(`<Response>${gatherXml(base)}</Response>`);
   }
 });
 
@@ -235,4 +256,5 @@ app.listen(PORT, () => {
   console.log(`Luka awake on :${PORT} — polling every ${minutes}m, Google ${isConnected() ? 'linked' : 'NOT linked'}`);
   // Start the personal-WhatsApp reader (non-blocking; shows a QR at /wa/link until linked).
   startWhatsApp().catch(e => console.error('[wa] boot error:', e.message));
+  warmFillers().catch(() => {});   // pre-make the short call acknowledgements
 });

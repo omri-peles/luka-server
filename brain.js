@@ -77,13 +77,12 @@ async function weatherText(city) {
   return out;
 }
 
-// Sending WhatsApp in the owner's name is a TWO-STEP action enforced in code, not just by prompt:
-// prepare (draft, nothing sent) -> the owner hears it and says yes -> confirm (actually sends).
-// confirm is refused in the same turn as prepare, so she can never send without his explicit OK.
+// Sending WhatsApp in the owner's name. Per the owner's explicit choice there is NO confirmation
+// step: she sends right away and then repeats back who it went to and what it said.
 const WA_TOOLS = [
   {
-    name: 'prepare_whatsapp_message',
-    description: 'הכנת טיוטה של הודעת וואטסאפ שתישלח מהוואטסאפ של אדוני לאדם אחר. לא שולחת דבר. אחריה חובה להקריא לאדוני את הנמען והנוסח ולשאול אם לשלוח.',
+    name: 'send_whatsapp_message',
+    description: 'שליחה מיידית של הודעת וואטסאפ מהוואטסאפ של אדוני לאדם אחר. אחרי השליחה חזרי בקצרה על הנמען ועל הנוסח שנשלח.',
     input_schema: {
       type: 'object',
       properties: {
@@ -92,40 +91,23 @@ const WA_TOOLS = [
       },
       required: ['recipient', 'text']
     }
-  },
-  {
-    name: 'confirm_whatsapp_send',
-    description: 'שליחת הטיוטה הממתינה. מותר לקרוא לכלי הזה רק אחרי שאדוני אישר במפורש (כן / שלחי) בהודעה נפרדת, אחרי ששמע את הנמען והנוסח.',
-    input_schema: { type: 'object', properties: {} }
   }
 ];
-let turnNo = 0;
-let pendingWa = null;
 
 // Execute a tool call, return a short Hebrew result string for the model.
 async function runTool(name, input) {
-  if (name === 'prepare_whatsapp_message') {
+  if (name === 'send_whatsapp_message') {
     try {
       const wa = await import('./whatsapp.js');
       const r = wa.resolveRecipient(input && input.recipient);
-      if (!r) return 'לא מצאתי איש קשר בשם הזה בין מי שכתב לאדוני לאחרונה. בקשי מאדוני מספר טלפון.';
-      if (r.ambiguous) return 'יש כמה אנשי קשר מתאימים: ' + r.ambiguous.join(', ') + '. שאלי את אדוני למי הכוונה.';
+      if (!r) return 'לא נשלח: לא מצאתי איש קשר בשם הזה בין מי שכתב לאדוני לאחרונה. בקשי מאדוני מספר טלפון.';
+      if (r.ambiguous) return 'לא נשלח: יש כמה אנשי קשר מתאימים: ' + r.ambiguous.join(', ') + '. שאלי את אדוני למי הכוונה.';
       const text = ((input && input.text) || '').toString().trim();
-      if (!text) return 'חסר נוסח להודעה.';
-      pendingWa = { jid: r.jid, name: r.name, text, turn: turnNo, exp: Date.now() + 5 * 60000 };
-      return 'טיוטה מוכנה ולא נשלחה. נמען: ' + r.name + '. נוסח: "' + text + '". הקריאי לאדוני את הנמען והנוסח ושאלי אם לשלוח.';
-    } catch { return 'לא הצלחתי להכין את ההודעה.'; }
-  }
-  if (name === 'confirm_whatsapp_send') {
-    if (!pendingWa || Date.now() > pendingWa.exp) { pendingWa = null; return 'אין הודעה שממתינה לשליחה.'; }
-    if (pendingWa.turn >= turnNo) return 'אי אפשר לשלוח באותה פנייה שבה הוכנה הטיוטה. חכי לאישור מפורש של אדוני בהודעה הבאה שלו.';
-    try {
-      const wa = await import('./whatsapp.js');
-      await wa.sendWhatsApp(pendingWa.jid, pendingWa.text);
-      const n = pendingWa.name; pendingWa = null;
-      return 'ההודעה נשלחה אל ' + n + '.';
+      if (!text) return 'לא נשלח: חסר נוסח להודעה.';
+      await wa.sendWhatsApp(r.jid, text);
+      return 'ההודעה נשלחה אל ' + r.name + '. הנוסח שנשלח: "' + text + '". חזרי עליו לאדוני בקצרה.';
     } catch (e) {
-      return String(e.message || e).includes('not-connected') ? 'הוואטסאפ לא מחובר כרגע, ההודעה לא נשלחה.' : 'השליחה נכשלה, ההודעה לא נשלחה.';
+      return String(e.message || e).includes('not-connected') ? 'לא נשלח: הוואטסאפ לא מחובר כרגע.' : 'לא נשלח: השליחה נכשלה.';
     }
   }
   if (name === 'get_weather') {
@@ -205,8 +187,7 @@ async function liveContext() {
 }
 
 // Conversational reply, with shared memory across tablet + whatsapp, and calendar tool-use.
-export async function chat(text) {
-  turnNo++;
+export async function chat(text, opts = {}) {
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
@@ -215,7 +196,7 @@ export async function chat(text) {
     "כשאדוני אומר 'מחר', 'יום ראשון הבא' וכדומה — חשבי את התאריך המדויק ביחס לעכשיו.";
 
   const connected = isConnected();
-  sys += "\n\nהיכולות שלך: שעון ותאריך (למעלה), מזג אוויר (דרך הכלי get_weather), הודעות וואטסאפ נכנסות אחרונות, שליחת וואטסאפ בשם אדוני (תמיד בשני שלבים: טיוטה, הקראה לאדוני, ושליחה רק אחרי שאישר במפורש), " +
+  sys += "\n\nהיכולות שלך: שעון ותאריך (למעלה), מזג אוויר (דרך הכלי get_weather), הודעות וואטסאפ נכנסות אחרונות, שליחת וואטסאפ בשם אדוני (שולחת מיד ואז חוזרת על הנמען והנוסח), " +
     (connected
       ? "וגישה חיה ליומן (קריאה וכתיבה) ולמייל של אדוני. לעולם אל תאמרי שאין לך גישה לדברים האלה."
       : "אך החיבור ל-Google (יומן ומייל) מנותק כרגע; אם תישאלי על יומן או מייל, אמרי שהחיבור ל-Google דורש חידוש.");
@@ -226,11 +207,12 @@ export async function chat(text) {
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
 
+  if (opts.phone) sys += "\n\nאת כעת בשיחת טלפון קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה.";
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
   const tools = connected ? [...TOOLS, WEATHER_TOOL, ...WA_TOOLS] : [WEATHER_TOOL, ...WA_TOOLS];
   for (let i = 0; i < 4; i++) {
-    const j = await callRaw(messages, { system: sys, tools });
+    const j = await callRaw(messages, { system: sys, tools, maxTokens: opts.phone ? 220 : 500 });
     const content = j.content || [];
     if (j.stop_reason === 'tool_use') {
       const results = [];

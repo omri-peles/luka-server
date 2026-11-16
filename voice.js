@@ -44,6 +44,21 @@ export async function synthesize(text) {
   return null;
 }
 
+// Tiny pre-made acknowledgements ("one sec") played the instant the owner stops talking on a
+// call, while the real answer is being prepared — so the line never goes dead.
+const FILLERS = ['כן.', 'שנייה.', 'מיד.', 'בודקת.'];
+const fillerIds = {};
+export async function filler() {
+  const t = FILLERS[Math.floor(Math.random() * FILLERS.length)];
+  if (fillerIds[t] && audioPath(fillerIds[t])) return fillerIds[t];
+  // Not cached: make it in the background and skip the filler this time (never wait for it).
+  synthesize(t).then(id => { if (id) fillerIds[t] = id; }).catch(() => {});
+  return null;
+}
+export async function warmFillers() {
+  for (const t of FILLERS) { try { const id = await synthesize(t); if (id) fillerIds[t] = id; } catch { } }
+}
+
 export function audioPath(id) {
   const p = path.join(AUDIO_DIR, path.basename(id) + '.mp3');
   return fs.existsSync(p) ? p : null;
@@ -56,6 +71,7 @@ export function cleanup() {
     const cutoff = Date.now() - 60 * 60 * 1000;
     for (const f of fs.readdirSync(AUDIO_DIR)) {
       const p = path.join(AUDIO_DIR, f);
+      if (Object.values(fillerIds).some(id => f === id + '.mp3')) continue;   // keep the fillers
       if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
     }
   } catch { /* ignore */ }
