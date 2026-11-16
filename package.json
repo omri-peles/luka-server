@@ -1,0 +1,19 @@
+{
+  "name": "luka-server",
+  "version": "1.0.0",
+  "description": "Luka - 24/7 proactive AI assistant brain (Gmail + Calendar + Twilio calling + WhatsApp)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "googleapis": "^144.0.0",
+    "twilio": "^5.3.0",
+    "node-cron": "^3.0.3"
+  }
+}

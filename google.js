@@ -1,0 +1,115 @@
+// Google OAuth + Gmail + Calendar access.
+import { google } from 'googleapis';
+import { load, save, set, get } from './store.js';
+
+const SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/calendar.readonly'
+];
+
+export function oauthClient() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
+
+export function authUrl() {
+  return oauthClient().generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',           // force a refresh_token
+    scope: SCOPES
+  });
+}
+
+export async function handleCallback(code) {
+  const client = oauthClient();
+  const { tokens } = await client.getToken(code);
+  // Keep the refresh_token (long-lived). Access tokens are refreshed automatically.
+  const existing = get('google') || {};
+  set('google', { ...existing, ...tokens });
+  return true;
+}
+
+export function isConnected() {
+  const g = get('google');
+  return !!(g && g.refresh_token);
+}
+
+function authed() {
+  const g = get('google');
+  if (!g || !g.refresh_token) return null;
+  const client = oauthClient();
+  client.setCredentials(g);
+  // Persist refreshed tokens
+  client.on('tokens', (t) => {
+    const cur = get('google') || {};
+    set('google', { ...cur, ...t });
+  });
+  return client;
+}
+
+// Returns new important unread emails not seen before.
+// [{ id, from, subject, snippet }]
+export async function newImportantEmails() {
+  const client = authed();
+  if (!client) return [];
+  const gmail = google.gmail({ version: 'v1', auth: client });
+  const s = load();
+  const res = await gmail.users.messages.list({
+    userId: 'me',
+    q: 'is:unread category:primary newer_than:1d',
+    maxResults: 10
+  });
+  const out = [];
+  for (const m of (res.data.messages || [])) {
+    if (s.seenEmailIds.includes(m.id)) continue;
+    try {
+      const full = await gmail.users.messages.get({
+        userId: 'me', id: m.id, format: 'metadata',
+        metadataHeaders: ['From', 'Subject']
+      });
+      const headers = full.data.payload?.headers || [];
+      const from = headers.find(h => h.name === 'From')?.value || '';
+      const subject = headers.find(h => h.name === 'Subject')?.value || '(ללא נושא)';
+      out.push({ id: m.id, from, subject, snippet: full.data.snippet || '' });
+    } catch { /* skip this one */ }
+  }
+  // Mark all fetched as seen (even non-important) to avoid re-processing
+  for (const m of (res.data.messages || [])) {
+    if (!s.seenEmailIds.includes(m.id)) s.seenEmailIds.push(m.id);
+  }
+  if (s.seenEmailIds.length > 800) s.seenEmailIds = s.seenEmailIds.slice(-800);
+  save();
+  return out;
+}
+
+// Returns calendar events starting within the next `minutes` not yet alerted.
+// [{ id, summary, start }]
+export async function upcomingEvents(minutes = 15) {
+  const client = authed();
+  if (!client) return [];
+  const cal = google.calendar({ version: 'v3', auth: client });
+  const now = new Date();
+  const soon = new Date(now.getTime() + minutes * 60000);
+  const res = await cal.events.list({
+    calendarId: 'primary',
+    timeMin: now.toISOString(),
+    timeMax: soon.toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 10
+  });
+  const s = load();
+  const out = [];
+  for (const ev of (res.data.items || [])) {
+    if (s.alertedEventIds.includes(ev.id)) continue;
+    out.push({
+      id: ev.id,
+      summary: ev.summary || '(אירוע ללא שם)',
+      start: ev.start?.dateTime || ev.start?.date || ''
+    });
+  }
+  return out;
+}
