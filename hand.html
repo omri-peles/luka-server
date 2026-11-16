@@ -23,7 +23,9 @@ const opened = [];                               // tabs this page opened, so Lu
 function openUrl(u, label){
   const w = window.open(u, "_blank");
   if(!w){ blocked.push({ u, label }); $("warn").classList.remove("hidden"); log("נחסם על ידי הדפדפן: " + u); return "לא נפתח: הדפדפן במחשב חסם את הפתיחה. אדוני צריך ללחוץ על הכפתור בדף היד של לוקה."; }
-  opened.push({ w, u, label: label || "" }); log("נפתח: " + u); return "נפתח במחשב: " + (label || u);
+  const o = { w, u, label: label || "", cut: false }; opened.push(o);
+  setTimeout(() => { try{ if(o.w.closed) o.cut = true; }catch(e){ o.cut = true; } }, 2500);   // sites like YouTube/Google cut the link to the page that opened them
+  log("נפתח: " + u); return "נפתח במחשב: " + (label || u);
 }
 function textOf(o){ let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return (d + " " + o.label).toLowerCase(); }
 function closeTabs(what){
@@ -37,6 +39,11 @@ function closeTabs(what){
     if(!pick.length){ const words = q.split(/\s+/).filter(x => x.length > 1 && !/^(של|את|ה?לשונית|ה?כרטיסיי?ה|ה?טאב|tab)$/.test(x)); if(words.length) pick = alive.filter(o => words.every(x => textOf(o).includes(x))); }
   }
   for(const o of pick){ try{ o.w.close(); }catch(e){} }
+  if(!pick.length && what !== "all" && what !== "last"){
+    const q = what.toLowerCase().trim();
+    const cut = opened.filter(o => o.cut && (textOf(o).includes(q) || q.split(/\s+/).filter(x => x.length > 1).some(x => textOf(o).includes(x))));
+    if(cut.length){ const m = "לא נסגר: הלשונית \"" + (cut[0].label || what) + "\" נפתחה על ידי לוקה, אבל האתר הזה (כמו יוטיוב וגוגל) מנתק את השליטה של הדף שפתח אותו, ולכן אי אפשר לסגור אותה מכאן. אדוני צריך לסגור אותה ידנית."; log(m); return m; }
+  }
   const names = alive.map(o => o.label || o.u).join(" | ");
   const msg = pick.length ? "נסגרו " + pick.length + " לשוניות: " + pick.map(o => o.label || o.u).join(" | ")
     : "לא נסגר דבר: לא נמצאה לשונית מתאימה שלוקה פתחה (\"" + what + "\"). " + (alive.length ? "לשוניות פתוחות שלוקה פתחה: " + names : "אין כרגע לשוניות פתוחות שלוקה פתחה; לשוניות שאדוני פתח בעצמו אי אפשר לסגור.");
