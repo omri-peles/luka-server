@@ -119,10 +119,15 @@ export async function startWhatsApp() {
 
     const skip = selfDigits();
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+      // 'notify' = live message. 'append' = delivered while we were briefly offline (e.g. during a
+      // server restart) — accept those too if they are fresh, otherwise an urgent message that
+      // lands mid-restart would be silently dropped. Duplicates are filtered by message id.
+      if (type !== 'notify' && type !== 'append') return;
       for (const m of messages) {
         try {
           if (!m.message || m.key.fromMe) continue;            // skip our own outgoing
+          const ts = Number(m.messageTimestamp || 0) * 1000;
+          if (type === 'append' && (!ts || Date.now() - ts > 5 * 60000)) continue; // old history, not news
           const jid = m.key.remoteJid || '';
           if (jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // skip groups + status
           const senderDigits = jid.split('@')[0].replace(/\D/g, '');

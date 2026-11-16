@@ -53,8 +53,9 @@ export async function handleItem(kind, idKey, id, summary, opts = {}) {
   // Always let the tablet know (she'll say it aloud when he's near / when polled).
   queueForTablet(verdict.say);
 
-  // If he's AT the tablet, that's enough — don't also ping his phone.
-  if (presentAtTablet()) return;
+  // If he's AT the tablet, that's enough for ordinary items. An URGENT item still rings his
+  // phone (an open Luka page on some screen must never swallow a "call me now").
+  if (presentAtTablet() && verdict.urgency !== 'high') return;
 
   // He's away from the tablet, so reach his phone. Within the allowed hours a
   // high-urgency item earns a real phone call; everything else (and any call
