@@ -5,6 +5,22 @@
 import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
+import { CATEGORIES, remember, forget, memoryText } from './memory.js';
+
+const MEMORY_TOOLS = [
+  {
+    name: 'remember',
+    description: 'שמירת עובדה לזיכרון האישי לטווח ארוך: העדפה, פרויקט, משימה פתוחה, אדם או ספק, החלטה, הרגל. השתמשי בזה מיוזמתך בכל פעם שאדוני מספר דבר כזה, בלי לשאול.',
+    input_schema: { type: 'object', properties: {
+      category: { type: 'string', enum: CATEGORIES },
+      text: { type: 'string', description: 'העובדה במשפט קצר וברור שיהיה מובן גם בעוד חודש.' } }, required: ['category', 'text'] }
+  },
+  {
+    name: 'forget',
+    description: 'מחיקת פריטים מהזיכרון האישי שמכילים את הטקסט הנתון. רק כשאדוני מבקש לשכוח או כשמשימה הושלמה.',
+    input_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }
+  }
+];
 
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
 const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5'];
@@ -32,6 +48,8 @@ async function buildSystem(s, connected) {
     sys += "\n\nהודעות וואטסאפ אחרונות שאדוני קיבל (יש לך גישה לקרוא אותן):\n" +
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
+  const mem = memoryText();
+  sys += "\n\nהזיכרון האישי שלך על אדוני (נשמר בין שיחות). השתמשי בו בתשובותייך, ושמרי בו דברים חדשים בכלי remember:" + (mem || "\n(עדיין ריק)");
   sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה. אל תתקני ואל תתנצלי על תשובות קודמות אלא אם אדוני שאל על כך. התאריך והשעה שלמעלה הם שעון חי ומדויק לרגע זה: כשאת נשאלת מה השעה או מה התאריך, עני לפיהם בביטחון, גם אם בשיחה הקודמת נאמרה שעה אחרת.";
   return sys;
 }
@@ -125,7 +143,7 @@ export async function chatStream(text, onSentence) {
   let messages = s.conversation.slice(-16);
   const connected = isConnected();
   const sys = await buildSystem(s, connected);
-  const tools = connected ? [...TOOLS, WEATHER_TOOL, ...WA_TOOLS] : [WEATHER_TOOL, ...WA_TOOLS];
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS];
 
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
@@ -136,7 +154,10 @@ export async function chatStream(text, onSentence) {
       const results = [];
       for (const b of r.content) {
         if (b.type === 'tool_use') {
-          const out = await runTool(b.name, b.input || {});
+          const inp = b.input || {};
+          const out = b.name === 'remember' ? remember(inp.category, inp.text)
+            : b.name === 'forget' ? forget(inp.text)
+            : await runTool(b.name, inp);
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
         }
       }
