@@ -16,7 +16,9 @@ async function transcribe(buf, type) {
     fd.append('tag_audio_events', 'false');
     fd.append('timestamps_granularity', 'none');
     if (withTerms) fd.append('keyterms', 'לוקה');
-    fd.append('file', new Blob([buf], { type: type || 'audio/wav' }), 'speech.wav');
+    const pcm = /audio\/pcm/i.test(type || '');                  // raw 16 kHz mono 16-bit: the fastest path
+    if (pcm) fd.append('file_format', 'pcm_s16le_16');
+    fd.append('file', new Blob([buf], { type: pcm ? 'application/octet-stream' : (type || 'audio/wav') }), pcm ? 'speech.pcm' : 'speech.wav');
     return fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': KEY() }, body: fd });
   };
   let r = await call(useKeyterms);
@@ -33,7 +35,7 @@ export function mountEars(app, authOk) {
     if (!buf || buf.length < 3000) return res.json({ text: '' });
     const today = new Date().toISOString().slice(0, 10);
     if (today !== day) { day = today; usedSec = 0; }
-    const sec = Math.max(0.3, Number(req.get('x-audio-seconds')) || (buf.length - 44) / 32000);
+    const sec = Math.max(0.3, Number(req.get('x-audio-seconds')) || buf.length / 32000);
     if (usedSec + sec > DAILY_MIN() * 60) return res.status(429).json({ error: 'daily-cap' });
     usedSec += sec;
     try { res.json({ text: await transcribe(buf, req.get('content-type')) }); }
