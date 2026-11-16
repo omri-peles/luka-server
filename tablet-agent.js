@@ -6,6 +6,7 @@ import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
+import { buildSite, editSite, undoSite, sitesText } from './sites.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -28,6 +29,27 @@ const COMPUTER_TOOLS = [
     name: 'set_computer_volume',
     description: 'קביעת עוצמת הקול במק של אדוני, מספר בין 0 (שקט) ל-100.',
     input_schema: { type: 'object', properties: { level: { type: 'number' } }, required: ['level'] }
+  }
+];
+
+const SITE_TOOLS = [
+  {
+    name: 'build_site',
+    description: 'בניית אתר חדש של דף אחד (דף נחיתה, דף מוצר, דף עסק) לפי בקשת אדוני. הבנייה נמשכת כדקה ברקע: הכלי עונה מיד, והודעה נפרדת תגיע כשהאתר מוכן. אמרי לאדוני שהתחלת ושתודיעי כשיהיה מוכן; אל תאמרי שהאתר כבר מוכן. ב-brief כתבי את כל מה שאדוני ביקש, במילים שלו, בלי להמציא פרטים שלא נמסרו.',
+    input_schema: { type: 'object', properties: {
+      slug: { type: 'string', description: 'שם קצר לכתובת, באנגלית קטנה עם מקפים, למשל: pizza-roma' },
+      name: { type: 'string', description: 'שם האתר כפי שאדוני קורא לו' },
+      brief: { type: 'string', description: 'תיאור מלא: למי האתר, מה הוא מציג, סגנון, צבעים, טקסטים ופרטי קשר שנמסרו' } }, required: ['slug', 'name', 'brief'] }
+  },
+  {
+    name: 'edit_site',
+    description: 'שינוי באתר קיים שבנית (צבע, כותרת, טקסט, הוספת חלק). נמשך כדקה ברקע, והודעה נפרדת תגיע כשהסתיים. אם אדוני לא אמר איזה אתר, הכוונה לאחרון ברשימה.',
+    input_schema: { type: 'object', properties: { slug: { type: 'string' }, instruction: { type: 'string', description: 'מה לשנות, במילים של אדוני' } }, required: ['slug', 'instruction'] }
+  },
+  {
+    name: 'undo_site_change',
+    description: 'החזרת אתר לגרסה שלפני השינוי האחרון.',
+    input_schema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] }
   }
 ];
 
@@ -75,6 +97,8 @@ async function buildSystem(s, connected) {
   sys += "\n\nהמחשב של אדוני " + (macOnline() ? "מחובר דרך תוכנת העזר: את יכולה לפתוח בו אתרים (open_on_computer), לסגור כל לשונית בכרום לפי שמה (close_on_computer), לפתוח אפליקציות (open_app_on_computer) ולקבוע עוצמת קול (set_computer_volume). פעולות אחרות במחשב עדיין לא אפשריות."
     : computerOnline() ? "מחובר דרך הדף בלבד: את יכולה לפתוח בו אתרים (open_on_computer) ולסגור רק לשוניות שאת פתחת (close_on_computer). אפליקציות ועוצמת קול לא זמינות עד שתוכנת העזר תותקן במק."
     : "לא מחובר כרגע.");
+  const st = sitesText();
+  sys += "\n\nבניית אתרים: את יכולה לבנות אתר של דף אחד (build_site) ולשנות אתר קיים (edit_site). חנות עם תשלומים או אתר רב-עמודי עדיין לא אפשריים." + (st ? " האתרים שבנית עד כה, מהישן לחדש:\n" + st : "");
   const mem = memoryText();
   sys += "\n\nהזיכרון האישי שלך על אדוני (נשמר בין שיחות). השתמשי בו בתשובותייך, ושמרי בו דברים חדשים בכלי remember:" + (mem || "\n(עדיין ריק)");
   sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה. אל תתקני ואל תתנצלי על תשובות קודמות אלא אם אדוני שאל על כך. התאריך והשעה שלמעלה הם שעון חי ומדויק לרגע זה: כשאת נשאלת מה השעה או מה התאריך, עני לפיהם בביטחון, גם אם בשיחה הקודמת נאמרה שעה אחרת.";
@@ -170,7 +194,7 @@ export async function chatStream(text, onSentence) {
   let messages = s.conversation.slice(-16);
   const connected = isConnected();
   const sys = await buildSystem(s, connected);
-  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS];
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS];
 
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
@@ -184,6 +208,9 @@ export async function chatStream(text, onSentence) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
+            : b.name === 'build_site' ? buildSite(inp.slug, inp.name, inp.brief)
+            : b.name === 'edit_site' ? editSite(inp.slug, inp.instruction)
+            : b.name === 'undo_site_change' ? undoSite(inp.slug)
             : b.name === 'open_on_computer' ? await openOnComputer(inp.url, inp.label)
             : b.name === 'close_on_computer' ? await closeOnComputer(inp.what)
             : b.name === 'open_app_on_computer' ? await openAppOnComputer(inp.name)

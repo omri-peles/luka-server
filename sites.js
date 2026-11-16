@@ -1,0 +1,143 @@
+// Luka builds simple one-page websites by voice (tablet agent only).
+// A site is one self-contained HTML file kept on the data volume and served at /sites/<slug>.
+// Building takes about a minute, so it runs in the background: the tool answers at once, and
+// when the page is ready Luka opens it on the computer and announces it on the tablet.
+import fs from 'fs';
+import path from 'path';
+import { load, save } from './store.js';
+import { openOnComputer, computerOnline } from './computer.js';
+
+const KEY = () => process.env.ANTHROPIC_API_KEY || '';
+const MODELS = ['claude-sonnet-5-5', 'claude-haiku-5-5'];
+const DIR = path.resolve('./data/sites');
+const BASE = () => (process.env.PUBLIC_URL || process.env.BASE_URL || 'https://web-production-1b2f757c.up.railway.app').replace(/\/$/, '');
+const MAX_SITES = 30;
+const busy = new Set();
+
+const okSlug = s => /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(s || '');
+const file = slug => path.join(DIR, slug + '.html');
+export const siteUrl = slug => BASE() + '/sites/' + slug;
+
+function index() { const s = load(); if (!Array.isArray(s.sites)) s.sites = []; return s.sites; }
+export function sitesText() {
+  const list = index();
+  if (!list.length) return '';
+  return list.slice(-12).map(x => `- ${x.name} (slug: ${x.slug})`).join('\n');
+}
+export function readSite(slug) {
+  if (!okSlug(slug)) return null;
+  try { return fs.readFileSync(file(slug), 'utf8'); } catch { return null; }
+}
+
+function announce(text) {
+  const s = load();
+  if (!Array.isArray(s.updates)) s.updates = [];
+  s.updates.push({ id: Date.now().toString(36), text, at: Date.now() });
+  if (s.updates.length > 50) s.updates = s.updates.slice(-50);
+  save();
+}
+
+const RULES = `את בונה דף אינטרנט אחד, שלם ומוכן לשימוש, בקובץ HTML יחיד.
+כללים:
+- החזירי אך ורק את קובץ ה-HTML המלא, מ-<!DOCTYPE html> עד </html>, בלי שום טקסט לפני או אחרי ובלי סימוני קוד.
+- כל ה-CSS וה-JavaScript בתוך הקובץ עצמו. מותר לטעון גופן אחד מ-Google Fonts (למשל Heebo או Assistant).
+- עברית כברירת מחדל: <html lang="he" dir="rtl">, אלא אם התבקשה שפה אחרת.
+- עיצוב מודרני, נקי ומקצועי, מותאם לנייד ולמחשב, עם היררכיה ברורה, ריווח נדיב וכפתור פעולה בולט.
+- אל תשתמשי בתמונות מכתובות חיצוניות, אלא אם ניתנה כתובת מפורשת בבקשה. במקומן: מעברי צבע, צורות CSS, אייקוני SVG מוטמעים.
+- אל תמציאי עובדות: מספרי טלפון, כתובות, מחירים, המלצות של לקוחות או נתונים שלא נמסרו. אם חסר פרט, כתבי מציין מקום ברור בסוגריים מרובעים, למשל [מספר טלפון].
+- בלי טפסים ששולחים מידע לשרת ובלי קוד מעקב. כפתורי יצירת קשר יכולים להיות קישורי tel:, mailto: או wa.me אם נמסר מספר.
+- הקוד קצר ויעיל: עד כ-400 שורות.`;
+
+async function generate(userContent) {
+  let lastErr = '';
+  for (const model of MODELS) {
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: 14000, system: RULES, stream: true, messages: [{ role: 'user', content: userContent }] })
+      });
+      if (!r.ok || !r.body) { lastErr = model + ' HTTP ' + r.status; continue; }
+      const dec = new TextDecoder(); let buf = '', out = '', stop = '';
+      for await (const chunk of r.body) {
+        buf += dec.decode(chunk, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          if (!line.startsWith('data:')) continue;
+          let ev; try { ev = JSON.parse(line.slice(5)); } catch { continue; }
+          if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') out += ev.delta.text;
+          else if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason) stop = ev.delta.stop_reason;
+          else if (ev.type === 'error') lastErr = model + ' ' + JSON.stringify(ev.error || {}).slice(0, 120);
+        }
+      }
+      const html = extract(out);
+      if (html && stop !== 'max_tokens') return html;
+      lastErr = model + (stop === 'max_tokens' ? ' output too long' : ' no html');
+    } catch (e) { lastErr = model + ' ' + (e.message || e); }
+  }
+  throw new Error(lastErr || 'generation failed');
+}
+function extract(t) {
+  const a = t.search(/<!doctype html/i); const b = t.toLowerCase().lastIndexOf('</html>');
+  if (a < 0 || b < 0 || b < a) return '';
+  const html = t.slice(a, b + 7);
+  return html.length > 400 && html.length < 400000 ? html : '';
+}
+
+async function finish(slug, name, html, verb) {
+  fs.mkdirSync(DIR, { recursive: true });
+  if (fs.existsSync(file(slug))) fs.copyFileSync(file(slug), file(slug) + '.bak');   // one step of undo
+  fs.writeFileSync(file(slug), html);
+  const list = index(); const now = Date.now();
+  const cur = list.find(x => x.slug === slug);
+  if (cur) { cur.name = name || cur.name; cur.at = now; } else list.push({ slug, name, at: now });
+  save();
+  let opened = false;
+  if (computerOnline()) { const res = await openOnComputer(siteUrl(slug) + '?v=' + now.toString(36), name); opened = /^נפתח/.test(res); }
+  announce(`אדוני, האתר ${name} ${verb}` + (opened ? ' ופתוח במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותו.'));
+}
+
+// ---- tool handlers (answer at once; the work continues in the background) ----
+export function buildSite(slug, name, brief) {
+  slug = (slug || '').toString().toLowerCase().trim(); name = (name || '').toString().trim().slice(0, 60); brief = (brief || '').toString().trim();
+  if (!okSlug(slug)) return 'לא התחלתי: slug צריך להיות באנגלית קטנה, ספרות ומקפים בלבד, 3 עד 40 תווים.';
+  if (!name || brief.length < 10) return 'לא התחלתי: חסר שם לאתר או תיאור של מה שהוא צריך להכיל.';
+  if (busy.has(slug)) return 'האתר הזה כבר בבנייה כרגע.';
+  if (busy.size >= 2) return 'לא התחלתי: שני אתרים כבר בבנייה כרגע. אפשר לנסות שוב בעוד דקה.';
+  const list = index();
+  if (list.find(x => x.slug === slug)) return `לא התחלתי: כבר קיים אתר עם ה-slug ${slug}. לשינוי בו השתמשי ב-edit_site, או בחרי slug אחר לאתר חדש.`;
+  if (list.length >= MAX_SITES) return 'לא התחלתי: הגענו למספר האתרים המרבי (30). צריך למחוק אתר ישן קודם.';
+  busy.add(slug);
+  generate('בני דף אינטרנט לפי הבקשה הבאה.\nשם האתר: ' + name + '\nהבקשה: ' + brief)
+    .then(html => finish(slug, name, html, 'מוכן'))
+    .catch(e => { console.error('site build failed', slug, e.message); announce(`אדוני, לא הצלחתי לבנות את האתר ${name}. אפשר לבקש ממני שוב.`); })
+    .finally(() => busy.delete(slug));
+  return `התחלתי לבנות את האתר "${name}". זה לוקח בערך דקה. כשהוא יהיה מוכן אפתח אותו במחשב ואודיע. הכתובת שלו תהיה ${siteUrl(slug)}`;
+}
+
+export function editSite(slug, instruction) {
+  slug = (slug || '').toString().toLowerCase().trim(); instruction = (instruction || '').toString().trim();
+  const cur = index().find(x => x.slug === slug); const html = readSite(slug);
+  if (!cur || !html) return 'לא התחלתי: לא נמצא אתר כזה. האתרים הקיימים:\n' + (sitesText() || 'אין עדיין אתרים.');
+  if (instruction.length < 3) return 'לא התחלתי: חסר מה לשנות.';
+  if (busy.has(slug)) return 'האתר הזה כבר בעבודה כרגע. אפשר לבקש את השינוי כשאודיע שסיימתי.';
+  if (busy.size >= 2) return 'לא התחלתי: שני אתרים כבר בעבודה כרגע.';
+  busy.add(slug);
+  generate('זה הדף הקיים:\n\n' + html + '\n\nבצעי בו את השינוי הבא, והחזירי את הקובץ המלא המעודכן. אל תשני דבר שלא התבקש.\nהשינוי: ' + instruction)
+    .then(out => finish(slug, cur.name, out, 'עודכן'))
+    .catch(e => { console.error('site edit failed', slug, e.message); announce(`אדוני, לא הצלחתי לעדכן את האתר ${cur.name}. הוא נשאר כפי שהיה.`); })
+    .finally(() => busy.delete(slug));
+  return `התחלתי לעדכן את האתר "${cur.name}". זה לוקח בערך דקה, ואודיע כשיסתיים.`;
+}
+
+export function undoSite(slug) {
+  slug = (slug || '').toString().toLowerCase().trim();
+  const cur = index().find(x => x.slug === slug);
+  if (!cur || !okSlug(slug)) return 'לא נמצא אתר כזה.';
+  if (busy.has(slug)) return 'האתר בעבודה כרגע.';
+  if (!fs.existsSync(file(slug) + '.bak')) return 'אין גרסה קודמת לחזור אליה.';
+  const prev = fs.readFileSync(file(slug) + '.bak', 'utf8');
+  fs.copyFileSync(file(slug), file(slug) + '.bak'); fs.writeFileSync(file(slug), prev);
+  return `האתר "${cur.name}" הוחזר לגרסה הקודמת.`;
+}

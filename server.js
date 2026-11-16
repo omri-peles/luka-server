@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import twilio from 'twilio';
 import { takeAll, report, takeMac } from './computer.js';
 import fs from 'fs';
+import { readSite } from './sites.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -172,6 +173,18 @@ app.post('/computer/result', (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
   report((req.body && req.body.id) || '', (req.body && req.body.text) || '');
   res.json({ ok: true });
+});
+
+// ---------- SITES that Luka built (public pages) ----------
+// Served sandboxed: the page gets its own isolated origin, so nothing inside it can read
+// Luka's stored device token or call her endpoints as the owner.
+app.get('/sites/:slug', (req, res) => {
+  const html = readSite(req.params.slug);
+  if (!html) return res.status(404).type('text/plain').send('Not found');
+  res.set('Content-Security-Policy', "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation");
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'no-store');
+  res.type('text/html').send(html);
 });
 
 // ---------- LUKA'S HAND as a small background program on the Mac ----------
