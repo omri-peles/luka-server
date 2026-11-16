@@ -269,8 +269,8 @@ function playAudio(buf){
       let fin = false;
       const done = ()=>{ if(fin) return; fin = true; URL.revokeObjectURL(url); resolve();
         if(my !== turn) return;                                // he interrupted: the new turn owns the state
-        stopViz(); speaking=false; spokeUntil = Date.now() + 3000; curAudio = null;
-        mode(""); setStatus("מקשיבה…"); ensureRecog(); arm(10000); };
+        stopViz(); speaking=false; spokeUntil = Date.now() + 500; curAudio = null;
+        mode(""); setStatus("מקשיבה…"); flushRecog(); arm(10000); };
       audio.onended = done; audio.onerror = done; audio.onpause = done;
       audio.play().catch(()=>done());
     }catch(e){ speaking=false; resolve(); ensureRecog(); }
@@ -348,7 +348,7 @@ async function handleStream(text, my){
     }
     await chain;
   }finally{
-    if(started && my === turn){ stopViz(); speaking = false; spokeUntil = Date.now() + 3000; curAudio = null; mode(""); setStatus("מקשיבה…"); ensureRecog(); arm(10000); }
+    if(started && my === turn){ stopViz(); speaking = false; spokeUntil = Date.now() + 500; curAudio = null; mode(""); setStatus("מקשיבה…"); flushRecog(); arm(10000); }
   }
   if(my !== turn) return true;                              // he interrupted: nothing more to do for this turn
   if(got && !started){ mode(""); setStatus("מקשיבה…"); }   // answer arrived but audio failed
@@ -389,15 +389,13 @@ function buildRecog(){
     for(let i=ev.resultIndex;i<ev.results.length;i++){
       const res = ev.results[i], key = sess + ":" + i;
       let alts = []; for(let k=0;k<res.length;k++) alts.push((res[k].transcript||"").trim());
-      if(echoActive()){
-        // Is this her own voice coming back through the microphone, or is he speaking?
-        const first = alts[0] || "", nv = novel(first).length, tot = norm(first).length || 1;
-        const named = alts.some(a => WAKE.test(a)) && !spoken.has("לוקה");
-        if(speaking){
-          if(!(named || nv >= 3 || (nv >= 2 && nv / tot >= 0.5))) continue;     // echo: ignore
-          stopSpeaking(); arm(9000); mode("listening"); setStatus("כן אדוני?");   // he spoke: stop and listen
-        } else if(!(named || (nv >= 1 && nv / tot >= 0.5))) continue;            // tail of her own voice
-        alts = alts.map(stripEcho);
+      if(Date.now() < spokeUntil && !speaking) continue;                       // the last echo of her own voice
+      if(speaking){
+        // The microphone also hears her own voice, and the recogniser garbles it, so ordinary
+        // words cannot be trusted here. Only her name stops her (or a tap on the button).
+        const named = !spoken.has("לוקה") && alts.find(a => WAKE.test(a));
+        if(!named) continue;
+        stopSpeaking(1); arm(9000); mode("listening"); setStatus("כן אדוני?");
       }
       const hit = alts.find(a => WAKE.test(a));
       const best = alts[0] || "";
@@ -436,6 +434,7 @@ function ensureRecog(){
   try{ recog.start(); running=true; sess++; if(!armed && !speaking && body.className !== "thinking") setStatus("מקשיבה…"); }
   catch(e){ running=false; setTimeout(ensureRecog,800); }
 }
+function flushRecog(){ clearTimeout(earlyTimer); try{ recog && recog.abort(); }catch(e){} running=false; setTimeout(ensureRecog, 200); }
 function stopRecog(){ try{ recog && recog.stop(); }catch(e){} running=false; }
 
 // ---------- Manual ask button ----------
