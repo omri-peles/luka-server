@@ -1,5 +1,6 @@
 // The brain: Claude. Persona identical to the tablet's Luka, plus an urgency classifier.
 import { load, save } from './store.js';
+import { isConnected, agendaText, recentEmailText } from './google.js';
 
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
 const MODELS = ['claude-haiku-5-5', 'claude-3-5-haiku-latest', 'claude-sonnet-5-5', 'claude-3-5-sonnet-latest'];
@@ -45,7 +46,17 @@ export async function chat(text) {
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   const messages = s.conversation.slice(-16);
-  const reply = await call(messages);
+  // Pull live Google context so Luka can answer schedule/mail questions directly.
+  let sys = PERSONA;
+  if (isConnected()) {
+    try {
+      const [agenda, mail] = await Promise.all([agendaText(72), recentEmailText(5)]);
+      sys += "\n\n--- מידע חי מחשבון Google של אדוני (יש לך גישה אליו; השתמשי בו כדי לענות על שאלות לגבי היומן והמיילים) ---\n" +
+        "היומן (72 השעות הקרובות):\n" + agenda + "\n\nמיילים אחרונים שלא נקראו:\n" + mail +
+        "\n--- סוף המידע החי ---";
+    } catch { /* ignore, answer without live data */ }
+  }
+  const reply = await call(messages, { system: sys });
   s.conversation.push({ role: 'assistant', content: reply });
   if (s.conversation.length > 40) s.conversation = s.conversation.slice(-40);
   save();

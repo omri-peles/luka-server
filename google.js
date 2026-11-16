@@ -113,3 +113,49 @@ export async function upcomingEvents(minutes = 15) {
   }
   return out;
 }
+
+// Human-readable Hebrew agenda for the next `hours` hours (for answering chat questions).
+export async function agendaText(hours = 72) {
+  const client = authed();
+  if (!client) return '';
+  const cal = google.calendar({ version: 'v3', auth: client });
+  const now = new Date();
+  const end = new Date(now.getTime() + hours * 3600 * 1000);
+  const res = await cal.events.list({
+    calendarId: 'primary',
+    timeMin: now.toISOString(),
+    timeMax: end.toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+    maxResults: 25
+  });
+  const items = res.data.items || [];
+  if (!items.length) return 'אין אירועים ביומן בטווח הקרוב.';
+  const tz = process.env.TIMEZONE || 'Asia/Jerusalem';
+  const fmt = new Intl.DateTimeFormat('he-IL', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const fmtDay = new Intl.DateTimeFormat('he-IL', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'numeric' });
+  return items.map(ev => {
+    if (ev.start?.dateTime) return '• ' + fmt.format(new Date(ev.start.dateTime)) + ' — ' + (ev.summary || '(ללא שם)');
+    const d = ev.start?.date ? new Date(ev.start.date + 'T00:00:00') : null;
+    return '• ' + (d ? fmtDay.format(d) + ' (כל היום)' : '') + ' — ' + (ev.summary || '(ללא שם)');
+  }).join('\n');
+}
+
+// Recent unread primary emails (subject + sender) for answering chat questions.
+export async function recentEmailText(n = 5) {
+  const client = authed();
+  if (!client) return '';
+  const gmail = google.gmail({ version: 'v1', auth: client });
+  const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread category:primary newer_than:3d', maxResults: n });
+  const out = [];
+  for (const m of (res.data.messages || [])) {
+    try {
+      const full = await gmail.users.messages.get({ userId: 'me', id: m.id, format: 'metadata', metadataHeaders: ['From', 'Subject'] });
+      const h = full.data.payload?.headers || [];
+      const from = h.find(x => x.name === 'From')?.value || '';
+      const subj = h.find(x => x.name === 'Subject')?.value || '(ללא נושא)';
+      out.push('• ' + subj + ' — ' + from);
+    } catch { /* skip */ }
+  }
+  return out.length ? out.join('\n') : 'אין מיילים חדשים שלא נקראו.';
+}
