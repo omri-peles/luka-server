@@ -104,6 +104,24 @@ function nowLine() {
   return f.format(new Date());
 }
 
+// Live Google context (agenda + unread mail), cached ~2 min so chat replies stay snappy
+// instead of hitting Gmail + Calendar on every single message.
+let ctxCache = { text: '', ts: 0 };
+async function liveContext() {
+  if (ctxCache.text && Date.now() - ctxCache.ts < 120000) return ctxCache.text;
+  try {
+    const [agenda, mail] = await Promise.all([agendaText(336), recentEmailText(5)]);
+    ctxCache = {
+      text: "\n\n--- מידע חי מחשבון Google של אדוני (יש לך גישה מלאה: קריאה וכתיבה ליומן) ---\n" +
+        "היומן (14 הימים הקרובים):\n" + agenda + "\n\nמיילים אחרונים שלא נקראו:\n" + mail +
+        "\n--- סוף המידע החי ---\n" +
+        "כשאדוני מבקש לקבוע/להוסיף/לתזמן או לעדכן פגישה — השתמשי בכלים שברשותך כדי לבצע זאת בפועל ביומן, ואז אשרי לו קצרות.",
+      ts: Date.now()
+    };
+  } catch { /* keep previous cache on error */ }
+  return ctxCache.text;
+}
+
 // Conversational reply, with shared memory across tablet + whatsapp, and calendar tool-use.
 export async function chat(text) {
   const s = load();
@@ -114,15 +132,7 @@ export async function chat(text) {
     "כשאדוני אומר 'מחר', 'יום ראשון הבא' וכדומה — חשבי את התאריך המדויק ביחס לעכשיו.";
 
   const connected = isConnected();
-  if (connected) {
-    try {
-      const [agenda, mail] = await Promise.all([agendaText(336), recentEmailText(5)]);
-      sys += "\n\n--- מידע חי מחשבון Google של אדוני (יש לך גישה מלאה: קריאה וכתיבה ליומן) ---\n" +
-        "היומן (14 הימים הקרובים):\n" + agenda + "\n\nמיילים אחרונים שלא נקראו:\n" + mail +
-        "\n--- סוף המידע החי ---\n" +
-        "כשאדוני מבקש לקבוע/להוסיף/לתזמן או לעדכן פגישה — השתמשי בכלים שברשותך כדי לבצע זאת בפועל ביומן, ואז אשרי לו קצרות.";
-    } catch { /* ignore, answer without live data */ }
-  }
+  if (connected) sys += await liveContext();
 
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
