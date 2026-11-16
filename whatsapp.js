@@ -63,10 +63,12 @@ export async function startWhatsApp() {
 
     sock.ev.on('connection.update', async (u) => {
       const { connection, lastDisconnect, qr } = u;
-      if (qr) { connState = 'qr'; try { lastQR = await QRCode.toDataURL(qr); } catch { } }
+      if (qr) { connState = 'qr'; console.log('[wa] QR ready'); try { lastQR = await QRCode.toDataURL(qr); } catch (e) { console.warn('[wa] QR render failed:', e.message); } }
       if (connection === 'open') { connState = 'connected'; lastQR = null; console.log('[wa] connected'); }
       if (connection === 'close') {
-        const code = lastDisconnect?.error?.output?.statusCode;
+        const err = lastDisconnect?.error;
+        console.warn('[wa] close detail:', err?.name, '|', err?.message, '| boom:', err?.output?.statusCode);
+        const code = err?.output?.statusCode;
         if (code === DisconnectReason.loggedOut) {
           connState = 'logged_out';
           console.warn('[wa] logged out — needs re-linking at /wa/link');
