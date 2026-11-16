@@ -77,10 +77,10 @@ app.post('/chat', async (req, res) => {
 });
 
 // ---------- audio for Twilio <Play> ----------
-app.get('/audio/:id.mp3', (req, res) => {
+app.get('/audio/:id.wav', (req, res) => {
   const p = audioPath(req.params.id);
   if (!p) return res.status(404).send('not found');
-  res.type('audio/mpeg');
+  res.type('audio/wav');
   res.sendFile(path.resolve(p));
 });
 

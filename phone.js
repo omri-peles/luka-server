@@ -23,7 +23,7 @@ export async function callOwner(text) {
   let twiml;
   if (audioId) {
     // Play her real voice, twice, so a half-asleep owner catches it.
-    twiml = `<Response><Pause length="1"/><Play>${base}/audio/${audioId}.mp3</Play><Pause length="1"/><Play>${base}/audio/${audioId}.mp3</Play></Response>`;
+    twiml = `<Response><Pause length="1"/><Play>${base}/audio/${audioId}.wav</Play><Pause length="1"/><Play>${base}/audio/${audioId}.wav</Play></Response>`;
   } else {
     // Fallback to Twilio's built-in Hebrew TTS if ElevenLabs failed.
     const safe = text.replace(/[<&]/g, ' ');
