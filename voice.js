@@ -7,7 +7,8 @@ import path from 'path';
 const AUDIO_DIR = path.resolve('./data/audio');
 const KEY = () => process.env.ELEVENLABS_API_KEY || '';
 const VOICE = () => process.env.ELEVENLABS_VOICE_ID || 's0T0DT6EAPeX57MQpn3I';
-const MODELS = ['eleven_turbo_v2_5', 'eleven_multilingual_v2', 'eleven_flash_v2_5'];
+// eleven_v3 pronounces Hebrew correctly (owner's pick); the rest are fallbacks.
+const MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_turbo_v2_5'];
 let goodModel = '';
 
 function ensure() { if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true }); }
