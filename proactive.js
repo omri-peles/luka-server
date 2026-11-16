@@ -41,7 +41,9 @@ function queueForTablet(say) {
 }
 
 // Handle one item: classify, then notify and/or call.
-async function handleItem(kind, idKey, id, summary) {
+// Exported so the WhatsApp reader (whatsapp.js) runs incoming messages through the
+// exact same urgency pipeline: tablet update, then call / WhatsApp / SMS when away.
+export async function handleItem(kind, idKey, id, summary) {
   if (!remember(idKey, id)) return; // already handled
   let verdict;
   try { verdict = await classify(kind, summary); }

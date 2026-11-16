@@ -9,6 +9,7 @@ import { chat } from './brain.js';
 import { audioPath } from './voice.js';
 import { whatsappOwner } from './phone.js';
 import { tick } from './proactive.js';
+import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
 
 const app = express();
 app.use(express.json());
@@ -119,10 +120,34 @@ app.post('/test/whatsapp', async (req, res) => {
   res.json(r);
 });
 
+// ---------- WhatsApp personal-account reader (Baileys) ----------
+// Owner scans this QR once from his phone to let Luka read his INCOMING WhatsApp
+// messages and flag urgent ones. Unofficial — may risk the number being banned.
+app.get('/wa/link', (_req, res) => {
+  res.type('html').send(`<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>חיבור וואטסאפ של לוקה</title></head>
+<body style="font-family:system-ui,sans-serif;text-align:center;background:#0f172a;color:#e2e8f0;padding:24px">
+<h2>חיבור וואטסאפ של לוקה</h2>
+<p id="s">טוען…</p>
+<img id="q" alt="QR" style="width:280px;height:280px;background:#fff;padding:10px;border-radius:12px;display:none"/>
+<p style="opacity:.8;font-size:15px;max-width:360px;margin:16px auto">בוואטסאפ בטלפון: הגדרות ← מכשירים מקושרים ← קישור מכשיר ← וסרוק את הקוד.</p>
+<script>
+async function t(){try{const j=await(await fetch('/wa/qr')).json();
+const s=document.getElementById('s'),q=document.getElementById('q');
+if(j.state==='connected'){s.textContent='מחובר! לוקה קוראת עכשיו הודעות נכנסות. אפשר לסגור את החלון.';q.style.display='none';}
+else if(j.qr){s.textContent='סרוק את הקוד מהוואטסאפ בטלפון';q.src=j.qr;q.style.display='inline-block';}
+else{s.textContent='מתחבר… (מצב: '+j.state+')';q.style.display='none';}}catch(e){}}
+setInterval(t,2500);t();
+</script></body></html>`);
+});
+app.get('/wa/qr', (_req, res) => { const st = waStatus(); res.json({ state: st.state, qr: waQR() }); });
+
 // ---------- proactive loop ----------
 const minutes = Math.max(1, parseInt(process.env.POLL_MINUTES || '3', 10));
 cron.schedule(`*/${minutes} * * * *`, () => { tick().catch(e => console.error('tick', e)); });
 
 app.listen(PORT, () => {
   console.log(`Luka awake on :${PORT} — polling every ${minutes}m, Google ${isConnected() ? 'linked' : 'NOT linked'}`);
+  // Start the personal-WhatsApp reader (non-blocking; shows a QR at /wa/link until linked).
+  startWhatsApp().catch(e => console.error('[wa] boot error:', e.message));
 });
