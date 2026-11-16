@@ -5,29 +5,46 @@ const queue = [];
 let lastSeen = 0;
 
 export function computerOnline() { return Date.now() - lastSeen < 12000; }
-export function enqueue(cmd) {
-  queue.push({ ...cmd, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now() });
-}
 export function takeAll() {
   lastSeen = Date.now();
   const fresh = queue.filter(c => Date.now() - c.at < 60000);
   queue.length = 0;
   return fresh;
 }
-// Tool handler used by the tablet agent.
-export function openOnComputer(url) {
-  const u = (url || '').toString().trim();
-  if (!/^https?:\/\/[^\s]+$/i.test(u)) return 'לא נשלח: כתובת לא תקינה.';
-  if (!computerOnline()) return 'לא נשלח: המחשב לא מחובר כרגע. הדף "היד של לוקה" צריך להיות פתוח בדפדפן של המחשב.';
-  enqueue({ type: 'open', url: u });
-  return 'נשלח למחשב: נפתח ' + u;
+// The hand reports back what actually happened, so Luka tells the truth about it.
+const waiters = new Map();
+export function report(id, text) {
+  const w = waiters.get(id); if (w) { waiters.delete(id); w((text || '').toString().slice(0, 300)); }
+}
+function waitFor(id, ms) {
+  return new Promise(resolve => {
+    const t = setTimeout(() => { waiters.delete(id); resolve(null); }, ms);
+    waiters.set(id, (x) => { clearTimeout(t); resolve(x); });
+  });
+}
+function send(cmd) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  queue.push({ ...cmd, id, at: Date.now() });
+  return id;
 }
 
-// Close tabs that Luka's hand opened. what: 'last' | 'all' | free text matched against the address
-// (e.g. the search words). Tabs the owner opened himself cannot be closed by a web page.
-export function closeOnComputer(what) {
+// Tool handlers used by the tablet agent.
+export async function openOnComputer(url, label) {
+  const u = (url || '').toString().trim();
+  if (!/^https?:\/\/[^\s]+$/i.test(u)) return 'לא נשלח: כתובת לא תקינה.';
+  if (!computerOnline()) return 'לא בוצע: המחשב לא מחובר כרגע. הדף "היד של לוקה" צריך להיות פתוח בדפדפן של המחשב.';
+  const id = send({ type: 'open', url: u, label: (label || '').toString().slice(0, 120) });
+  const res = await waitFor(id, 6000);
+  return res || 'נשלח למחשב, אך לא התקבל אישור שהאתר נפתח.';
+}
+
+// Close tabs that Luka's hand opened. what: 'last' | 'all' | free text matched against the
+// address and the label given when it was opened. Tabs the owner opened himself cannot be
+// closed by a web page.
+export async function closeOnComputer(what) {
   const w = (what || 'last').toString().trim() || 'last';
-  if (!computerOnline()) return 'לא נשלח: המחשב לא מחובר כרגע.';
-  enqueue({ type: 'close', what: w });
-  return 'נשלחה למחשב בקשת סגירה (' + w + '). אפשר לסגור רק לשוניות שלוקה פתחה בעצמה מאז שהדף "היד של לוקה" נפתח.';
+  if (!computerOnline()) return 'לא בוצע: המחשב לא מחובר כרגע.';
+  const id = send({ type: 'close', what: w });
+  const res = await waitFor(id, 6000);
+  return res || 'לא התקבל אישור מהמחשב שהלשונית נסגרה.';
 }

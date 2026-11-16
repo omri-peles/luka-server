@@ -19,24 +19,33 @@ const $ = id => document.getElementById(id);
 const log = t => { $("log").innerHTML = new Date().toLocaleTimeString("he-IL") + " — " + t + "<br>" + $("log").innerHTML; };
 let pairing = false, running = false;
 let blocked = [];
-function openUrl(u){
-  const w = window.open(u, "_blank");
-  if(!w){ blocked.push(u); $("warn").classList.remove("hidden"); log("נחסם על ידי הדפדפן: " + u); return; }
-  opened.push({ w, u }); log("נפתח: " + u);
-}
 const opened = [];                               // tabs this page opened, so Luka can close them
+function openUrl(u, label){
+  const w = window.open(u, "_blank");
+  if(!w){ blocked.push({ u, label }); $("warn").classList.remove("hidden"); log("נחסם על ידי הדפדפן: " + u); return "לא נפתח: הדפדפן במחשב חסם את הפתיחה. אדוני צריך ללחוץ על הכפתור בדף היד של לוקה."; }
+  opened.push({ w, u, label: label || "" }); log("נפתח: " + u); return "נפתח במחשב: " + (label || u);
+}
+function textOf(o){ let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return (d + " " + o.label).toLowerCase(); }
 function closeTabs(what){
   const alive = opened.filter(o => o.w && !o.w.closed);
   let pick = [];
   if(what === "all") pick = alive;
   else if(what === "last") pick = alive.slice(-1);
-  else { const q = what.toLowerCase(); pick = alive.filter(o => { let d = o.u; try{ d = decodeURIComponent(o.u.replace(/\+/g, " ")); }catch(e){} return d.toLowerCase().includes(q); }); }
+  else {
+    const q = what.toLowerCase().trim();
+    pick = alive.filter(o => textOf(o).includes(q));
+    if(!pick.length){ const words = q.split(/\s+/).filter(x => x.length > 1 && !/^(של|את|ה?לשונית|ה?כרטיסיי?ה|ה?טאב|tab)$/.test(x)); if(words.length) pick = alive.filter(o => words.every(x => textOf(o).includes(x))); }
+  }
   for(const o of pick){ try{ o.w.close(); }catch(e){} }
-  log(pick.length ? "נסגרו " + pick.length + " לשוניות" : "לא נמצאה לשונית מתאימה שלוקה פתחה (\"" + what + "\"), לא נסגר דבר");
+  const names = alive.map(o => o.label || o.u).join(" | ");
+  const msg = pick.length ? "נסגרו " + pick.length + " לשוניות: " + pick.map(o => o.label || o.u).join(" | ")
+    : "לא נסגר דבר: לא נמצאה לשונית מתאימה שלוקה פתחה (\"" + what + "\"). " + (alive.length ? "לשוניות פתוחות שלוקה פתחה: " + names : "אין כרגע לשוניות פתוחות שלוקה פתחה; לשוניות שאדוני פתח בעצמו אי אפשר לסגור.");
+  log(msg); return msg;
 }
+function tell(id, text){ fetch("/computer/result", { method:"POST", headers:{ "content-type":"application/json", "x-luka-token": localStorage.getItem("luka_token") || "" }, body: JSON.stringify({ id, text }) }).catch(()=>{}); }
 $("openNow").addEventListener("click", ()=>{            // a real click, so the browser allows it
   const list = blocked; blocked = [];
-  for(const u of list){ const w = window.open(u, "_blank"); if(w){ opened.push({ w, u }); log("נפתח: " + u); } else blocked.push(u); }
+  for(const it of list){ const w = window.open(it.u, "_blank"); if(w){ opened.push({ w, u: it.u, label: it.label || "" }); log("נפתח: " + it.u); } else blocked.push(it); }
   if(!blocked.length) $("warn").classList.add("hidden");
 });
 async function loop(){
@@ -47,9 +56,9 @@ async function loop(){
       if(r.status === 401){ localStorage.removeItem("luka_token"); running = false; $("go").classList.remove("hidden"); $("st").textContent = "החיבור פג. לחץ לחיבור מחדש."; return; }
       const j = await r.json();
       $("st").textContent = "מחובר. מחכה לפקודות מלוקה.";
-      for(const c of (j.items || [])){ if(c.type === "open") openUrl(c.url); else if(c.type === "close") closeTabs(c.what || "last"); }
+      for(const c of (j.items || [])){ let out = ""; if(c.type === "open") out = openUrl(c.url, c.label); else if(c.type === "close") out = closeTabs(c.what || "last"); if(c.id) tell(c.id, out); }
     }catch(e){ $("st").textContent = "אין חיבור לשרת, מנסה שוב…"; }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
 $("go").addEventListener("click", async ()=>{

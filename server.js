@@ -9,7 +9,7 @@ import { chat } from './brain.js';
 import { audioPath, synthesize, filler, warmFillers } from './voice.js';
 import crypto from 'crypto';
 import twilio from 'twilio';
-import { takeAll } from './computer.js';
+import { takeAll, report } from './computer.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -166,6 +166,11 @@ app.get('/hand', (_req, res) => res.sendFile(path.resolve('./hand.html')));
 app.get('/computer/next', (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
   res.json({ items: takeAll() });
+});
+app.post('/computer/result', (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  report((req.body && req.body.id) || '', (req.body && req.body.text) || '');
+  res.json({ ok: true });
 });
 
 // ---------- TABLET AGENT: streamed chat (sentence by sentence) ----------
