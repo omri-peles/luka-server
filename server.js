@@ -6,7 +6,7 @@ import path from 'path';
 import { load, save, set, get } from './store.js';
 import { authUrl, handleCallback, isConnected } from './google.js';
 import { chat } from './brain.js';
-import { audioPath } from './voice.js';
+import { audioPath, synthesize } from './voice.js';
 import { whatsappOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -94,6 +94,51 @@ app.all('/voice/:aid', (req, res) => {
   res.type('text/xml').send(
     `<Response><Pause length="1"/><Play>${url}</Play><Pause length="1"/><Play>${url}</Play></Response>`
   );
+});
+
+// ---------- Conversational call (two-way: Luka speaks, owner replies, she answers, repeat) ----------
+// A real back-and-forth on the phone: Twilio <Gather> captures the owner's speech (Hebrew),
+// we run it through her brain (shared memory + persona), speak the reply in her real voice,
+// then listen again — until he says goodbye.
+function gatherXml(base) {
+  return `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/voice/convo/turn" method="POST"></Gather>`
+       + `<Redirect method="POST">${base}/voice/convo/turn</Redirect>`;
+}
+function speakXml(base, aid, text) {
+  if (aid) return `<Play>${base}/audio/${aid}.mp3</Play>`;
+  const safe = (text || '').replace(/[<&]/g, ' ');
+  return `<Say language="he-IL">${safe}</Say>`;
+}
+
+// First turn: play Luka's opening line (pre-synthesized, passed as ?aid=), then listen.
+app.all('/voice/convo', (req, res) => {
+  const base = process.env.PUBLIC_URL || '';
+  const aid = (req.query.aid || req.body?.aid || '').toString().replace(/[^a-z0-9]/gi, '');
+  res.type('text/xml').send(`<Response>${speakXml(base, aid || null, '')}${gatherXml(base)}</Response>`);
+});
+
+// Every following turn: Twilio posts what the owner said (SpeechResult); Luka thinks, replies, listens again.
+app.post('/voice/convo/turn', async (req, res) => {
+  const base = process.env.PUBLIC_URL || '';
+  const speech = (req.body?.SpeechResult || '').toString().trim();
+  try {
+    if (!speech) {
+      const t = 'אדוני, אני עדיין כאן. במה אוכל לעזור?';
+      const aid = await synthesize(t);
+      return res.type('text/xml').send(`<Response>${speakXml(base, aid, t)}${gatherXml(base)}</Response>`);
+    }
+    if (/להתראות|תודה לוקה|ביי לוקה|נתראה|סיימתי|זה הכל|זהו לעכשיו/.test(speech)) {
+      const t = 'בשמחה אדוני. אני כאן מתי שתצטרך. להתראות.';
+      const aid = await synthesize(t);
+      return res.type('text/xml').send(`<Response>${speakXml(base, aid, t)}<Hangup/></Response>`);
+    }
+    let reply;
+    try { reply = await chat(speech); } catch { reply = 'סליחה אדוני, יש לי קושי רגעי. נסה שוב.'; }
+    const aid = await synthesize(reply);
+    res.type('text/xml').send(`<Response>${speakXml(base, aid, reply)}${gatherXml(base)}</Response>`);
+  } catch (e) {
+    res.type('text/xml').send(`<Response><Say language="he-IL">סליחה אדוני, הייתה תקלה.</Say><Hangup/></Response>`);
+  }
 });
 
 // ---------- WhatsApp (Twilio inbound) ----------

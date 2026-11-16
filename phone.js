@@ -10,7 +10,8 @@ function client() {
   return twilio(sid, token);
 }
 
-// Places a call to the owner and plays `text` in Luka's voice.
+// Calls the owner and opens a TWO-WAY conversation: Luka says `text` in her real voice, then
+// listens for his reply and answers, turn by turn (handled by /voice/convo on the server).
 // Returns { ok, reason }.
 export async function callOwner(text) {
   const c = client();
@@ -22,13 +23,16 @@ export async function callOwner(text) {
   const audioId = await synthesize(text);
   try {
     if (audioId) {
-      // Point the call at our TwiML webhook, which plays her real voice (more reliable
-      // than inline TwiML for fetching external <Play> audio).
-      await c.calls.create({ to, from, url: `${base}/voice/${audioId}`, method: 'GET' });
+      // Start the conversation: play her opening line, then gather his speech and loop.
+      await c.calls.create({ to, from, url: `${base}/voice/convo?aid=${audioId}`, method: 'GET' });
     } else {
-      // Fallback to Twilio's built-in Hebrew TTS if ElevenLabs failed.
+      // ElevenLabs failed — still make it conversational using Twilio's Hebrew TTS for the opener.
       const safe = text.replace(/[<&]/g, ' ');
-      await c.calls.create({ to, from, twiml: `<Response><Say language="he-IL">${safe}</Say></Response>` });
+      const twiml =
+        `<Response><Say language="he-IL">${safe}</Say>` +
+        `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/voice/convo/turn" method="POST"></Gather>` +
+        `<Redirect method="POST">${base}/voice/convo/turn</Redirect></Response>`;
+      await c.calls.create({ to, from, twiml });
     }
     return { ok: true };
   } catch (e) {
