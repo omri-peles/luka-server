@@ -12,6 +12,7 @@ import twilio from 'twilio';
 import { takeAll, report, takeMac } from './computer.js';
 import fs from 'fs';
 import { readSite, deleteSite } from './sites.js';
+import { mountEars } from './ears.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -162,6 +163,9 @@ app.post('/tts', async (req, res) => {
     res.type('audio/mpeg').sendFile(path.resolve(p));
   } catch (e) { res.status(502).json({ error: 'tts' }); }
 });
+
+// ---------- TABLET EARS: speech-to-text for the tablet page (see ears.js) ----------
+mountEars(app, authOk);
 
 // ---------- LUKA'S HAND on the computer ----------
 app.get('/hand', (_req, res) => res.sendFile(path.resolve('./hand.html')));
