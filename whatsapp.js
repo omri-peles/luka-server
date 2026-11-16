@@ -7,7 +7,13 @@
 // if that package ever fails to load on the host, only this reader is disabled — the rest
 // of Luka (calendar, calls, WhatsApp chat) keeps running.
 import path from 'path';
+import { webcrypto } from 'node:crypto';
 import { handleItem } from './proactive.js';
+
+// Baileys relies on the global Web Crypto API (globalThis.crypto). On Node 18 it is NOT exposed
+// as a global by default (it only became global in Node 20), so Baileys throws
+// "crypto is not defined" and closes before showing a QR. Polyfill it before Baileys loads.
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
 const AUTH_DIR = path.resolve('./data/wa-auth');
 
