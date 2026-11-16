@@ -114,6 +114,25 @@ app.post('/chat', async (req, res) => {
   }
 });
 
+// ---------- TABLET AGENT: streamed chat (sentence by sentence) ----------
+// Separate from the phone agent. Loaded lazily so that a fault here can never take the
+// server (and with it the phone calls) down.
+app.post('/chat/stream', async (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  const text = (req.body?.text || '').toString().trim();
+  if (!text) return res.status(400).json({ error: 'empty' });
+  res.set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
+  if (res.flushHeaders) res.flushHeaders();
+  try {
+    const { chatStream } = await import('./tablet-agent.js');
+    const reply = await chatStream(text, (sentence) => res.write(JSON.stringify({ s: sentence }) + '\n'));
+    res.write(JSON.stringify({ done: true, reply }) + '\n');
+  } catch (e) {
+    res.write(JSON.stringify({ error: String(e.message || e) }) + '\n');
+  }
+  res.end();
+});
+
 // ---------- audio for Twilio <Play> ----------
 app.get('/audio/:id.mp3', (req, res) => {
   const p = audioPath(req.params.id);

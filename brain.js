@@ -258,3 +258,7 @@ export async function classify(kind, summary) {
     return { urgency: 'low', say: 'אדוני, יש עדכון חדש: ' + summary };
   }
 }
+
+// Shared building blocks for the separate tablet agent (tablet-agent.js). Additive only:
+// chat() above, which the phone agent uses, is unchanged.
+export { TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine };
