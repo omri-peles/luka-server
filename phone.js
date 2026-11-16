@@ -20,17 +20,16 @@ export async function callOwner(text) {
   if (!c || !to || !from || !base) return { ok: false, reason: 'twilio not configured' };
 
   const audioId = await synthesize(text);
-  let twiml;
-  if (audioId) {
-    // Play her real voice, twice, so a half-asleep owner catches it.
-    twiml = `<Response><Pause length="1"/><Play>${base}/audio/${audioId}.wav</Play><Pause length="1"/><Play>${base}/audio/${audioId}.wav</Play></Response>`;
-  } else {
-    // Fallback to Twilio's built-in Hebrew TTS if ElevenLabs failed.
-    const safe = text.replace(/[<&]/g, ' ');
-    twiml = `<Response><Say language="he-IL">${safe}</Say></Response>`;
-  }
   try {
-    await c.calls.create({ to, from, twiml });
+    if (audioId) {
+      // Point the call at our TwiML webhook, which plays her real voice (more reliable
+      // than inline TwiML for fetching external <Play> audio).
+      await c.calls.create({ to, from, url: `${base}/voice/${audioId}`, method: 'GET' });
+    } else {
+      // Fallback to Twilio's built-in Hebrew TTS if ElevenLabs failed.
+      const safe = text.replace(/[<&]/g, ' ');
+      await c.calls.create({ to, from, twiml: `<Response><Say language="he-IL">${safe}</Say></Response>` });
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: String(e.message || e) };

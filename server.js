@@ -84,6 +84,17 @@ app.get('/audio/:id.wav', (req, res) => {
   res.sendFile(path.resolve(p));
 });
 
+// TwiML webhook Twilio fetches when the call connects (canonical pattern; more reliable
+// than inline TwiML for playing external audio). Plays Luka's clip twice.
+app.all('/voice/:aid', (req, res) => {
+  const base = process.env.PUBLIC_URL || '';
+  const aid = path.basename(req.params.aid);
+  const url = `${base}/audio/${aid}.wav`;
+  res.type('text/xml').send(
+    `<Response><Pause length="1"/><Play>${url}</Play><Pause length="1"/><Play>${url}</Play></Response>`
+  );
+});
+
 // ---------- WhatsApp (Twilio inbound) ----------
 // Owner texts Luka on WhatsApp -> she replies in her voice/persona.
 app.post('/whatsapp', async (req, res) => {
