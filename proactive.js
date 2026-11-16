@@ -43,11 +43,12 @@ function queueForTablet(say) {
 // Handle one item: classify, then notify and/or call.
 // Exported so the WhatsApp reader (whatsapp.js) runs incoming messages through the
 // exact same urgency pipeline: tablet update, then call / WhatsApp / SMS when away.
-export async function handleItem(kind, idKey, id, summary) {
+export async function handleItem(kind, idKey, id, summary, opts = {}) {
   if (!remember(idKey, id)) return; // already handled
   let verdict;
   try { verdict = await classify(kind, summary); }
   catch { verdict = { urgency: 'low', say: 'אדוני, יש עדכון חדש: ' + summary }; }
+  if (opts.forceHigh) verdict.urgency = 'high'; // urgent keywords in the message override the classifier
 
   // Always let the tablet know (she'll say it aloud when he's near / when polled).
   queueForTablet(verdict.say);
@@ -64,6 +65,15 @@ export async function handleItem(kind, idKey, id, summary) {
     if (res.ok) { console.log('[proactive] called owner'); return; }
     console.warn('[proactive] call unavailable, falling back:', res.reason);
   }
+
+  // Incoming WhatsApp from a contact reaches his phone ONLY when it's urgent; anything calmer
+  // waits quietly in the tablet queue, so everyday chatter doesn't blow up his phone.
+  // (Email and calendar are already pre-filtered to what matters, so they ping as before.)
+  if (kind === 'whatsapp' && verdict.urgency !== 'high') {
+    console.log('[proactive] whatsapp non-urgent — tablet only');
+    return;
+  }
+
   let r = await whatsappOwner(verdict.say);
   if (!r.ok) {
     console.warn('[proactive] whatsapp failed, trying sms:', r.reason);

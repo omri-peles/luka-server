@@ -17,6 +17,10 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
 const AUTH_DIR = path.resolve('./data/wa-auth');
 
+// Words that mark an incoming message as "answer me / this is urgent". When present, we force
+// high urgency so Luka calls, regardless of how the classifier read the tone.
+const URGENT_RE = /דחוף|חירום|בהול|תענה|תתקשר|תחזור אלי|תחזור אליי|אסאפ|asap|urgent|emergency/i;
+
 // Numbers whose incoming messages we must IGNORE, to avoid a feedback loop: Luka reaches the
 // owner through the Twilio WhatsApp number, and those alerts arrive in the owner's own WhatsApp
 // as "incoming" from that number — reading them back would make Luka alert on her own alerts.
@@ -100,9 +104,9 @@ export async function startWhatsApp() {
           if (!body.trim()) continue;                          // text messages only
           const from = m.pushName || jid.split('@')[0] || 'איש קשר';
           const summary = `הודעת וואטסאפ חדשה מ-${from}: ${body}`;
-          // Reuse the proactive pipeline: classify urgency, update the tablet, and
-          // call / WhatsApp / SMS the owner if it genuinely warrants interrupting.
-          await handleItem('whatsapp', 'seenWhatsappIds', m.key.id, summary);
+          // Reuse the proactive pipeline: classify urgency, update the tablet, and only reach
+          // his phone when it's urgent. Urgent keywords ("דחוף", "תענה"…) force a call.
+          await handleItem('whatsapp', 'seenWhatsappIds', m.key.id, summary, { forceHigh: URGENT_RE.test(body) });
         } catch (e) { console.warn('[wa] message error:', e.message); }
       }
     });
