@@ -77,10 +77,10 @@ app.post('/chat', async (req, res) => {
 });
 
 // ---------- audio for Twilio <Play> ----------
-app.get('/audio/:id.wav', (req, res) => {
+app.get('/audio/:id.mp3', (req, res) => {
   const p = audioPath(req.params.id);
   if (!p) return res.status(404).send('not found');
-  res.type('audio/wav');
+  res.type('audio/mpeg');
   res.sendFile(path.resolve(p));
 });
 
@@ -89,7 +89,7 @@ app.get('/audio/:id.wav', (req, res) => {
 app.all('/voice/:aid', (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const aid = path.basename(req.params.aid);
-  const url = `${base}/audio/${aid}.wav`;
+  const url = `${base}/audio/${aid}.mp3`;
   res.type('text/xml').send(
     `<Response><Pause length="1"/><Play>${url}</Play><Pause length="1"/><Play>${url}</Play></Response>`
   );
