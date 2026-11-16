@@ -24,14 +24,14 @@ export async function callOwner(text) {
   try {
     if (audioId) {
       // Start the conversation: play her opening line, then gather his speech and loop.
-      await c.calls.create({ to, from, url: `${base}/voice/convo?aid=${audioId}`, method: 'GET' });
+      await c.calls.create({ to, from, url: `${base}/convo?aid=${audioId}`, method: 'GET' });
     } else {
       // ElevenLabs failed — still make it conversational using Twilio's Hebrew TTS for the opener.
       const safe = text.replace(/[<&]/g, ' ');
       const twiml =
         `<Response><Say language="he-IL">${safe}</Say>` +
-        `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/voice/convo/turn" method="POST"></Gather>` +
-        `<Redirect method="POST">${base}/voice/convo/turn</Redirect></Response>`;
+        `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/convo/turn" method="POST"></Gather>` +
+        `<Redirect method="POST">${base}/convo/turn</Redirect></Response>`;
       await c.calls.create({ to, from, twiml });
     }
     return { ok: true };

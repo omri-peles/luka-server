@@ -101,8 +101,8 @@ app.all('/voice/:aid', (req, res) => {
 // we run it through her brain (shared memory + persona), speak the reply in her real voice,
 // then listen again — until he says goodbye.
 function gatherXml(base) {
-  return `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/voice/convo/turn" method="POST"></Gather>`
-       + `<Redirect method="POST">${base}/voice/convo/turn</Redirect>`;
+  return `<Gather input="speech" language="he-IL" speechTimeout="auto" action="${base}/convo/turn" method="POST"></Gather>`
+       + `<Redirect method="POST">${base}/convo/turn</Redirect>`;
 }
 function speakXml(base, aid, text) {
   if (aid) return `<Play>${base}/audio/${aid}.mp3</Play>`;
@@ -111,14 +111,15 @@ function speakXml(base, aid, text) {
 }
 
 // First turn: play Luka's opening line (pre-synthesized, passed as ?aid=), then listen.
-app.all('/voice/convo', (req, res) => {
+// NB: on /convo (not /voice/convo) so it doesn't collide with the /voice/:aid audio route above.
+app.all('/convo', (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const aid = (req.query.aid || req.body?.aid || '').toString().replace(/[^a-z0-9]/gi, '');
   res.type('text/xml').send(`<Response>${speakXml(base, aid || null, '')}${gatherXml(base)}</Response>`);
 });
 
 // Every following turn: Twilio posts what the owner said (SpeechResult); Luka thinks, replies, listens again.
-app.post('/voice/convo/turn', async (req, res) => {
+app.post('/convo/turn', async (req, res) => {
   const base = process.env.PUBLIC_URL || '';
   const speech = (req.body?.SpeechResult || '').toString().trim();
   try {
