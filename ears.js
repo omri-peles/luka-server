@@ -37,7 +37,7 @@ export function mountEars(app, authOk) {
     if (usedSec + sec > DAILY_MIN() * 60) return res.status(429).json({ error: 'daily-cap' });
     usedSec += sec;
     try { res.json({ text: await transcribe(buf, req.get('content-type')) }); }
-    catch (e) { console.error(e.message); res.status(502).json({ error: 'stt' }); }
+    catch (e) { console.error(e.message); res.status(502).json({ error: 'stt', detail: e.message }); }
   });
   app.get('/stt/usage', (req, res) => {
     if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
