@@ -7,7 +7,8 @@ import { load, save, set, get } from './store.js';
 import { authUrl, handleCallback, isConnected } from './google.js';
 import { chat } from './brain.js';
 import { audioPath, synthesize } from './voice.js';
-import { whatsappOwner } from './phone.js';
+import crypto from 'crypto';
+import { whatsappOwner, smsOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
 
@@ -32,8 +33,32 @@ const TOKEN = () => process.env.TABLET_TOKEN || '';
 
 function authOk(req) {
   const t = req.query.token || req.body?.token || req.get('x-luka-token');
-  return TOKEN() && t === TOKEN();
+  if (!t) return false;
+  if (TOKEN() && t === TOKEN()) return true;
+  return (get('deviceTokens') || []).includes(t);   // devices paired with a one-time code
 }
+
+// ---------- device pairing: a 6-digit code sent to the owner's phone ----------
+let pair = { code: '', exp: 0, tries: 0, last: 0 };
+app.post('/pair/request', async (_req, res) => {
+  if (Date.now() - pair.last < 60000) return res.status(429).json({ error: 'wait' });
+  pair = { code: String(crypto.randomInt(100000, 1000000)), exp: Date.now() + 10 * 60000, tries: 0, last: Date.now() };
+  const text = 'קוד החיבור של לוקה לטאבלט: ' + pair.code;
+  let r = await whatsappOwner(text);
+  let channel = 'whatsapp';
+  if (!r.ok) { r = await smsOwner(text); channel = 'sms'; }
+  if (!r.ok) return res.status(502).json({ error: 'send-failed' });
+  res.json({ ok: true, channel });
+});
+app.post('/pair/confirm', (req, res) => {
+  const code = (req.body?.code || '').toString().trim();
+  if (!pair.code || Date.now() > pair.exp || pair.tries >= 5) return res.status(401).json({ error: 'expired' });
+  if (code !== pair.code) { pair.tries++; return res.status(401).json({ error: 'wrong' }); }
+  const token = crypto.randomBytes(24).toString('hex');
+  set('deviceTokens', [...(get('deviceTokens') || []), token].slice(-5));
+  pair = { code: '', exp: 0, tries: 0, last: 0 };
+  res.json({ token });
+});
 
 // ---------- health / status ----------
 app.get('/', (_req, res) => res.send('Luka is awake.'));

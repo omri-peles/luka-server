@@ -49,8 +49,40 @@ const TOOLS = [
   }
 ];
 
+// Weather (Open-Meteo, no key needed). Works with or without Google connected.
+const WEATHER_TOOL = {
+  name: 'get_weather',
+  description: 'מזג האוויר הנוכחי ותחזית ל-3 ימים. השתמשי בזה בכל שאלה על מזג אוויר, טמפרטורה, גשם או מה ללבוש.',
+  input_schema: {
+    type: 'object',
+    properties: { city: { type: 'string', description: 'שם העיר (אופציונלי; ברירת מחדל: עיר הבית של אדוני).' } }
+  }
+};
+const WMO = { 0: 'בהיר', 1: 'בהיר ברובו', 2: 'מעונן חלקית', 3: 'מעונן', 45: 'ערפל', 48: 'ערפל', 51: 'טפטוף קל', 53: 'טפטוף', 55: 'טפטוף חזק', 61: 'גשם קל', 63: 'גשם', 65: 'גשם חזק', 71: 'שלג קל', 73: 'שלג', 75: 'שלג כבד', 80: 'ממטרים קלים', 81: 'ממטרים', 82: 'ממטרים חזקים', 95: 'סופת רעמים', 96: 'סופת רעמים עם ברד', 99: 'סופת רעמים עם ברד' };
+async function weatherText(city) {
+  const name = city || process.env.HOME_CITY || 'תל אביב';
+  const g = await (await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=he&name=' + encodeURIComponent(name))).json();
+  const p = g.results && g.results[0];
+  if (!p) return 'לא מצאתי מקום בשם "' + name + '".';
+  const f = await (await fetch('https://api.open-meteo.com/v1/forecast?latitude=' + p.latitude + '&longitude=' + p.longitude +
+    '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3')).json();
+  const c = f.current || {}, d = f.daily || {};
+  let out = 'מזג האוויר ב' + p.name + ' כעת: ' + (WMO[c.weather_code] || 'לא ידוע') + ', ' + Math.round(c.temperature_2m) + ' מעלות (מרגיש כמו ' +
+    Math.round(c.apparent_temperature) + '), רוח ' + Math.round(c.wind_speed_10m) + ' קמ"ש.';
+  (d.time || []).forEach((day, i) => {
+    out += ' ' + day + ': ' + (WMO[d.weather_code[i]] || '') + ', ' + Math.round(d.temperature_2m_min[i]) + ' עד ' + Math.round(d.temperature_2m_max[i]) +
+      ' מעלות, סיכוי לגשם ' + (d.precipitation_probability_max[i] ?? 0) + '%.';
+  });
+  return out;
+}
+
 // Execute a tool call, return a short Hebrew result string for the model.
 async function runTool(name, input) {
+  if (name === 'get_weather') {
+    try { return await weatherText(input && input.city); }
+    catch { return 'לא הצלחתי להביא את מזג האוויר כרגע.'; }
+  }
   try {
     if (name === 'create_calendar_event') {
       const ev = await createEvent(input);
@@ -133,6 +165,10 @@ export async function chat(text) {
     "כשאדוני אומר 'מחר', 'יום ראשון הבא' וכדומה — חשבי את התאריך המדויק ביחס לעכשיו.";
 
   const connected = isConnected();
+  sys += "\n\nהיכולות שלך: שעון ותאריך (למעלה), מזג אוויר (דרך הכלי get_weather), הודעות וואטסאפ נכנסות אחרונות, " +
+    (connected
+      ? "וגישה חיה ליומן (קריאה וכתיבה) ולמייל של אדוני. לעולם אל תאמרי שאין לך גישה לדברים האלה."
+      : "אך החיבור ל-Google (יומן ומייל) מנותק כרגע; אם תישאלי על יומן או מייל, אמרי שהחיבור ל-Google דורש חידוש.");
   if (connected) sys += await liveContext();
   const wa = (s.waRecent || []).slice(-8);
   if (wa.length) {
@@ -142,7 +178,7 @@ export async function chat(text) {
 
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
-  const tools = connected ? TOOLS : undefined;
+  const tools = connected ? [...TOOLS, WEATHER_TOOL] : [WEATHER_TOOL];
   for (let i = 0; i < 4; i++) {
     const j = await callRaw(messages, { system: sys, tools });
     const content = j.content || [];
