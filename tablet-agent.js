@@ -9,6 +9,16 @@ import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine }
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
 const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5'];
 
+// Calendar + mail context, kept warm for the tablet: answer immediately from the last copy and
+// refresh it in the background, instead of making him wait on Google before every answer.
+let ctx = '', ctxAt = 0, warm = null;
+async function fastContext() {
+  if (!warm) warm = setInterval(() => { liveContext().then(v => { if (v) { ctx = v; ctxAt = Date.now(); } }).catch(() => {}); }, 100000);
+  if (!ctx) { ctx = await liveContext(); ctxAt = Date.now(); return ctx; }
+  if (Date.now() - ctxAt > 60000) { ctxAt = Date.now(); liveContext().then(v => { if (v) ctx = v; }).catch(() => {}); }
+  return ctx;
+}
+
 async function buildSystem(s, connected) {
   let sys = PERSONA + "\n\nהתאריך והשעה הנוכחיים (אזור זמן ישראל): " + nowLine() + ". " +
     "כשאדוני אומר 'מחר', 'יום ראשון הבא' וכדומה — חשבי את התאריך המדויק ביחס לעכשיו.";
@@ -16,13 +26,13 @@ async function buildSystem(s, connected) {
     (connected
       ? "וגישה חיה ליומן (קריאה וכתיבה) ולמייל של אדוני. לעולם אל תאמרי שאין לך גישה לדברים האלה."
       : "אך החיבור ל-Google (יומן ומייל) מנותק כרגע; אם תישאלי על יומן או מייל, אמרי שהחיבור ל-Google דורש חידוש.");
-  if (connected) sys += await liveContext();
+  if (connected) sys += await fastContext();
   const wa = (s.waRecent || []).slice(-8);
   if (wa.length) {
     sys += "\n\nהודעות וואטסאפ אחרונות שאדוני קיבל (יש לך גישה לקרוא אותן):\n" +
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
-  sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה.";
+  sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה. אל תתקני ואל תתנצלי על תשובות קודמות אלא אם אדוני שאל על כך.";
   return sys;
 }
 

@@ -178,6 +178,23 @@ app.all('/convo', (req, res) => {
   res.type('text/xml').send(`<Response>${speakXml(base, aid || null, '', true)}${gatherXml(base)}</Response>`);
 });
 
+// INCOMING call: the owner dials Luka's number whenever he likes and talks to her. Only his own
+// phone is answered; anyone else is rejected. After the greeting it joins the same turn loop.
+let helloId = null;
+app.post('/voice/incoming', async (req, res) => {
+  const base = process.env.PUBLIC_URL || '';
+  const digits = x => (x || '').toString().replace(/\D/g, '');
+  const from = digits(req.body?.From), owner = digits(process.env.OWNER_PHONE);
+  if (!owner || from.slice(-9) !== owner.slice(-9)) return res.type('text/xml').send('<Response><Reject/></Response>');
+  try {
+    const t = 'כן אדוני, אני מקשיבה.';
+    if (!helloId || !audioPath(helloId)) helloId = await synthesize(t);
+    res.type('text/xml').send(`<Response>${speakXml(base, helloId, t, true)}${gatherXml(base)}</Response>`);
+  } catch (e) {
+    res.type('text/xml').send(`<Response>${gatherXml(base)}</Response>`);
+  }
+});
+
 // Each turn is split in two so the line never goes silent:
 //   /convo/turn   -> start thinking in the background, instantly play a short "one sec" clip
 //   /convo/answer -> wait for the answer that is already in flight, play it, listen again
