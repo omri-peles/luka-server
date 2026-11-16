@@ -207,7 +207,7 @@ export async function chat(text, opts = {}) {
       wa.map(m => `- ${m.from}: ${m.body}`).join('\n');
   }
 
-  if (opts.phone) sys += "\n\nאת כעת בשיחת טלפון קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה.";
+  if (opts.phone) sys += "\n\nאת כעת בשיחה קולית חיה עם אדוני. עני מיד ובקיצור: משפט קצר אחד, לכל היותר שניים, בלי הקדמות ובלי לחזור על השאלה.";
   // Tool-use loop (cap iterations to stay snappy).
   let reply = '';
   const tools = connected ? [...TOOLS, WEATHER_TOOL, ...WA_TOOLS] : [WEATHER_TOOL, ...WA_TOOLS];

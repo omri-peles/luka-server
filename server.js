@@ -107,7 +107,7 @@ app.post('/chat', async (req, res) => {
   const text = (req.body?.text || '').toString().trim();
   if (!text) return res.status(400).json({ error: 'empty' });
   try {
-    const reply = await chat(text);
+    const reply = await chat(text, { phone: !!req.body?.voice });   // voice clients get short, fast answers
     res.json({ reply });
   } catch (e) {
     res.status(502).json({ error: 'brain', detail: e.message });
