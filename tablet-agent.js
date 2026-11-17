@@ -189,8 +189,20 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
+const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export async function chatStream(text, onSentenceRaw, opts = {}) {
-  const onSentence = (p) => { if (!SILENT.test(p)) onSentenceRaw(p); };
+  // Without her name, a reply that only says "I didn't understand" means the words were not
+  // meant for her (or were garbled): hold the opening until that is clear, then stay silent.
+  let held = [], decided = !opts.followup, mute = false;
+  const onSentence = (p) => {
+    if (SILENT.test(p) || mute) return;
+    if (decided) return onSentenceRaw(p);
+    held.push(p);
+    const sofar = held.join(' ');
+    if (NOT_UNDERSTOOD.test(sofar)) { mute = true; held = []; return; }
+    if (sofar.length >= 45) { decided = true; for (const h of held) onSentenceRaw(h); held = []; }
+  };
+  const releaseHeld = () => { if (!mute && !decided) { decided = true; for (const h of held) onSentenceRaw(h); held = []; } };
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
@@ -230,7 +242,8 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   }
   splitter.flush();
   let reply = full.trim();
-  if (SILENT.test(reply)) {                         // not addressed to her: say nothing, remember nothing
+  releaseHeld();
+  if (SILENT.test(reply) || mute) {                         // not addressed to her: say nothing, remember nothing
     const i = s.conversation.length - 1;
     if (i >= 0 && s.conversation[i].role === 'user' && s.conversation[i].content === text) s.conversation.pop();
     save();
