@@ -3,7 +3,8 @@
 // short-lived, and anything not picked up within a minute is dropped.
 const queue = [];
 let lastSeen = 0;
-let macSeen = 0, macWake = null;
+let macSeen = 0, macWake = null, macVersion = 1;
+export const macCanReadFiles = () => macOnline() && macVersion >= 2;
 
 export function computerOnline() { return Date.now() - lastSeen < 12000 || Date.now() - macSeen < 45000; }
 export function takeAll() {
@@ -15,7 +16,7 @@ export function takeAll() {
 // The hand reports back what actually happened, so Luka tells the truth about it.
 const waiters = new Map();
 export function report(id, text) {
-  const w = waiters.get(id); if (w) { waiters.delete(id); w((text || '').toString().slice(0, 300)); }
+  const w = waiters.get(id); if (w) { waiters.delete(id); w((text || '').toString().slice(0, 16000)); }
 }
 function waitFor(id, ms) {
   return new Promise(resolve => {
@@ -34,8 +35,8 @@ function macLines() {
   return fresh.map(c => [c.id, c.type, clean(c.type === 'open' ? c.url : c.what), clean(c.label)].join('\t')).join('\n');
 }
 // Long poll: answers at once when a command is waiting, otherwise holds up to waitMs.
-export function takeMac(waitMs = 25000) {
-  macSeen = Date.now();
+export function takeMac(waitMs = 25000, version = 1) {
+  macSeen = Date.now(); macVersion = version;
   if (macQueue.length) return Promise.resolve(macLines());
   return new Promise(resolve => {
     if (macWake) macWake();                       // an older waiting request gives way
@@ -89,4 +90,21 @@ export async function closeOnComputer(what) {
   const id = send({ type: 'close', what: q });
   const res = await waitFor(id, 8000);
   return res || 'לא התקבל אישור מהמחשב שהלשונית נסגרה.';
+}
+
+// Files on the Mac (helper version 2+): find by name and read text/Word files, read-only,
+// only inside Desktop, Documents and Downloads.
+export function findOnMac(name) {
+  const n = clean(name);
+  if (n.length < 2) return 'לא בוצע: חסר שם קובץ לחיפוש.';
+  if (!macCanReadFiles()) return 'לא בוצע: תוכנת העזר במק לא מחוברת, או שהיא בגרסה ישנה שאינה קוראת קבצים.';
+  const id = send({ type: 'find', what: n });
+  return waitFor(id, 10000).then(r => r || 'לא התקבלה תשובה מהמחשב.');
+}
+export function readOnMac(path) {
+  const p = clean(path);
+  if (!/^(Desktop|Documents|Downloads)\//.test(p) || /\.\./.test(p)) return 'לא בוצע: הנתיב צריך להתחיל ב-Desktop/, Documents/ או Downloads/, כפי שהוא חזר מהחיפוש.';
+  if (!macCanReadFiles()) return 'לא בוצע: תוכנת העזר במק לא מחוברת, או שהיא בגרסה ישנה שאינה קוראת קבצים.';
+  const id = send({ type: 'read', what: p });
+  return waitFor(id, 12000).then(r => r || 'לא התקבלה תשובה מהמחשב.');
 }

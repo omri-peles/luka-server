@@ -1,7 +1,8 @@
 #!/bin/bash
 # Luka's hand on the Mac. Runs in the background and carries out a fixed, short list of
 # actions that Luka asks for: open a web address, close Chrome tabs by name, open an app,
-# set the volume. It cannot run arbitrary commands and it never updates itself.
+# set the volume, find a file by name and read a text or Word file (only inside Desktop,
+# Documents and Downloads, read-only). It cannot run arbitrary commands and it never updates itself.
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 DIR="$HOME/.luka"
 SERVER="$(cat "$DIR/server" 2>/dev/null)"
@@ -73,6 +74,23 @@ end run
 APPLESCRIPT
 }
 
+read_file() {  # path relative to the home folder, only inside Desktop / Documents / Downloads; read-only
+  local rel="$1"
+  case "$rel" in *..*|/*) echo "לא נקרא: נתיב לא תקין."; return ;; esac
+  case "$rel" in Desktop/*|Documents/*|Downloads/*) ;; *) echo "לא נקרא: אפשר לקרוא רק מתוך Desktop, Documents או Downloads."; return ;; esac
+  local f="$HOME/$rel"
+  [ -f "$f" ] || { echo "לא נקרא: הקובץ לא נמצא."; return; }
+  [ -L "$f" ] && { echo "לא נקרא: זה קיצור דרך ולא קובץ."; return; }
+  local real; real="$(cd "$(/usr/bin/dirname "$f")" 2>/dev/null && pwd -P)/$(/usr/bin/basename "$f")"
+  case "$real" in "$HOME/Desktop/"*|"$HOME/Documents/"*|"$HOME/Downloads/"*) ;; *) echo "לא נקרא: הקובץ מחוץ לתיקיות המותרות."; return ;; esac
+  local lower; lower="$(printf '%s' "$rel" | /usr/bin/tr 'A-Z' 'a-z')"
+  case "$lower" in
+    *.txt|*.md|*.csv|*.json|*.html|*.xml|*.log) /usr/bin/head -c 12000 "$real" ;;
+    *.docx|*.doc|*.rtf|*.odt) /usr/bin/textutil -convert txt -stdout "$real" 2>/dev/null | /usr/bin/head -c 12000 ;;
+    *) echo "לא נקרא: סוג הקובץ לא נתמך. נתמכים קובצי טקסט, CSV, Word ו-RTF." ;;
+  esac
+}
+
 handle() {  # type, a1, a2
   case "$1" in
     open)
@@ -89,6 +107,12 @@ handle() {  # type, a1, a2
       if [[ "$2" =~ ^[0-9]{1,3}$ ]] && [ "$2" -le 100 ]; then
         /usr/bin/osascript -e "set volume output volume $2" >/dev/null 2>&1 && echo "עוצמת הקול במחשב נקבעה ל-$2 אחוז." || echo "לא בוצע: לא הצלחתי לשנות את עוצמת הקול."
       else echo "לא בוצע: עוצמה לא תקינה."; fi ;;
+    find)
+      if [ -z "$2" ]; then echo "לא בוצע: חסר מה לחפש."; else
+        FOUND="$(/usr/bin/mdfind -name "$2" -onlyin "$HOME/Desktop" -onlyin "$HOME/Documents" -onlyin "$HOME/Downloads" 2>/dev/null | /usr/bin/head -n 15 | /usr/bin/sed "s|^$HOME/||")"
+        [ -z "$FOUND" ] && echo "לא נמצאו קבצים בשם הזה בשולחן העבודה, במסמכים או בהורדות." || echo "$FOUND"
+      fi ;;
+    read) read_file "$2" ;;
     *) echo "לא בוצע: פעולה לא מוכרת." ;;
   esac
 }
@@ -97,7 +121,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 2" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"
@@ -107,7 +131,7 @@ while true; do
   [ -z "$OUT" ] && continue
   while IFS=$'\t' read -r id type a1 a2; do
     [ -z "$id" ] && continue
-    RES="$(handle "$type" "$a1" "$a2" | /usr/bin/head -c 900)"
+    RES="$(handle "$type" "$a1" "$a2" | /usr/bin/head -c 12000)"
     answer "$id" "${RES:-לא התקבלה תוצאה מהמחשב.}"
   done <<< "$OUT"
 done

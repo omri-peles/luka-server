@@ -9,6 +9,11 @@ import { CATEGORIES, remember, forget, memoryText } from './memory.js';
 import { buildSite, editSite, undoSite, sitesText, announce } from './sites.js';
 import { startResearch } from './research.js';
 import { askFrame } from './eyes.js';
+import { setReminder, listReminders, cancelReminder } from './reminders.js';
+import { shopifyOn, shopifyOrders, shopifyProducts } from './shopify.js';
+import { imagesOn, makeImage } from './imagegen.js';
+import { driveOn, driveSearch, driveRead } from './drive.js';
+import { macCanReadFiles, findOnMac, readOnMac } from './computer.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -69,6 +74,28 @@ const EXTRA_TOOLS = [
     description: 'צילום תמונה אחת מהמצלמה של המסך שמולו אדוני נמצא, כדי לראות מה שמולך: חפץ שהוא מחזיק, מסמך, לבוש, החדר. השתמשי בזה רק כשאדוני מבקש שתסתכלי או שואל מה את רואה. המצלמה נדלקת לרגע ונכבית.',
     input_schema: { type: 'object', properties: { question: { type: 'string', description: 'מה אדוני רוצה לדעת על מה שרואים' } }, required: ['question'] }
   }
+];
+
+const str = (d) => ({ type: 'string', description: d });
+const REMINDER_TOOLS = [
+  { name: 'set_reminder', description: 'קביעת תזכורת או טיימר. חשבי בעצמך כמה דקות מעכשיו (לפי השעון שלמעלה) ומסרי את המספר. כשהזמן מגיע את אומרת את התזכורת במסך.', input_schema: { type: 'object', properties: { in_minutes: { type: 'number', description: 'בעוד כמה דקות מעכשיו' }, text: str('על מה להזכיר, במילים של אדוני') }, required: ['in_minutes', 'text'] } },
+  { name: 'list_reminders', description: 'רשימת התזכורות הפתוחות.', input_schema: { type: 'object', properties: {} } },
+  { name: 'cancel_reminder', description: 'ביטול תזכורת לפי מילים מתוכה.', input_schema: { type: 'object', properties: { text: str('מילים מתוך התזכורת') }, required: ['text'] } }
+];
+const SHOPIFY_TOOLS = [
+  { name: 'shop_orders', description: 'הזמנות ומכירות בחנות של אדוני בשופיפיי: כמה הזמנות, סכום כולל ופירוט. days: כמה ימים אחורה (1 להיום ואתמול, עד 60).', input_schema: { type: 'object', properties: { days: { type: 'number' } }, required: ['days'] } },
+  { name: 'shop_products', description: 'מוצרים בחנות של אדוני: מחיר, מלאי ומצב. query: מילות חיפוש (אפשר ריק לכל המוצרים). low_stock: אם ניתן מספר, רק מוצרים שהמלאי שלהם עד המספר הזה.', input_schema: { type: 'object', properties: { query: { type: 'string' }, low_stock: { type: 'number' } } } }
+];
+const IMAGE_TOOLS = [
+  { name: 'make_image', description: 'יצירת תמונה לפי תיאור. נמשך עד חצי דקה ברקע; הודעה נפרדת תגיע כשהתמונה מוכנה ופתוחה במחשב. כתבי תיאור מפורט באנגלית של מה שאדוני ביקש (נושא, סגנון, צבעים, קומפוזיציה).', input_schema: { type: 'object', properties: { description: str('תיאור מפורט באנגלית'), title: str('שם קצר בעברית לתמונה') }, required: ['description', 'title'] } }
+];
+const DRIVE_TOOLS = [
+  { name: 'drive_search', description: 'חיפוש קבצים ב-Google Drive של אדוני לפי שם או תוכן. שאילתה ריקה מחזירה את הקבצים האחרונים.', input_schema: { type: 'object', properties: { query: { type: 'string' } } } },
+  { name: 'drive_read', description: 'קריאת קובץ מ-Google Drive לפי ה-id שחזר מהחיפוש (מסמך, גיליון, מצגת, טקסט או PDF).', input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } }
+];
+const MACFILE_TOOLS = [
+  { name: 'find_file_on_computer', description: 'חיפוש קובץ לפי שם במק של אדוני, בתיקיות שולחן העבודה, מסמכים והורדות.', input_schema: { type: 'object', properties: { name: str('שם הקובץ או חלק ממנו') }, required: ['name'] } },
+  { name: 'read_file_on_computer', description: 'קריאת קובץ טקסט, CSV או Word מהמק של אדוני, לפי הנתיב שחזר מהחיפוש (מתחיל ב-Desktop/, Documents/ או Downloads/).', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }
 ];
 
 const MEMORY_TOOLS = [
@@ -213,7 +240,7 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
 let webOk = true, webErr = '';
-export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS }; }
+export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles() }; }
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export async function chatStream(text, onSentenceRaw, opts = {}) {
@@ -236,8 +263,9 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   let sys = await buildSystem(s, connected);
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
-  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS];
-  sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS, ...REMINDER_TOOLS,
+    ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : [])];
+  sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
   const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
   sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
@@ -262,6 +290,16 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
+            : b.name === 'set_reminder' ? setReminder(inp.in_minutes, inp.text)
+            : b.name === 'list_reminders' ? listReminders()
+            : b.name === 'cancel_reminder' ? cancelReminder(inp.text)
+            : b.name === 'shop_orders' ? await shopifyOrders(inp.days)
+            : b.name === 'shop_products' ? await shopifyProducts(inp.query, inp.low_stock)
+            : b.name === 'make_image' ? makeImage(inp.description, inp.title)
+            : b.name === 'drive_search' ? await driveSearch(inp.query)
+            : b.name === 'drive_read' ? await driveRead(inp.id)
+            : b.name === 'find_file_on_computer' ? await findOnMac(inp.name)
+            : b.name === 'read_file_on_computer' ? await readOnMac(inp.path)
             : b.name === 'research_in_depth' ? startResearch((m, sy, tl, max, onT) => streamOnce(m, sy, tl, onT, MODELS, null, max), announce, inp.slug, inp.title, inp.question)
             : b.name === 'look_through_camera' ? await (async () => {
                 const buf = await askFrame(opts.control);

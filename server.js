@@ -14,6 +14,7 @@ import fs from 'fs';
 import { readSite, deleteSite } from './sites.js';
 import { mountEars } from './ears.js';
 import { mountEyes } from './eyes.js';
+
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -181,6 +182,17 @@ app.get('/conversation', (req, res) => {
 // ---------- TABLET EARS: speech-to-text for the tablet page (see ears.js) ----------
 mountEars(app, authOk);
 mountEyes(app, authOk);
+// Optional tablet extras are loaded so that a fault in any of them can never stop the server
+// (and with it the phone agent) from starting.
+import('./drive.js').then(m => m.mountDrive(app)).catch(e => console.error('drive module', e.message));
+import('./reminders.js').catch(e => console.error('reminders module', e.message));
+app.get('/images/:id', async (req, res) => {        // pictures Luka made (random, unguessable ids)
+  let p = null; try { p = (await import('./imagegen.js')).imagePath(req.params.id); } catch (e) {}
+  if (!p || !fs.existsSync(p)) return res.status(404).type('text/plain').send('Not found');
+  const head = fs.readFileSync(p).subarray(0, 4);
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.type(head[0] === 0x89 ? 'image/png' : head[0] === 0xff ? 'image/jpeg' : 'image/webp').sendFile(p);
+});
 
 // ---------- LUKA'S HAND on the computer ----------
 app.get('/hand', (_req, res) => res.sendFile(path.resolve('./hand.html')));
@@ -224,7 +236,7 @@ for (const f of ['install.sh', 'agent.sh', 'uninstall.sh']) {
 app.get('/mac/next', async (req, res) => {
   if (!authOk(req)) return res.status(401).end();
   if (req.query.probe) return res.type('text/plain').send('');
-  res.type('text/plain').send(await takeMac());
+  res.type('text/plain').send(await takeMac(25000, Number(req.get('x-luka-helper')) || 1));
 });
 app.post('/mac/result', (req, res) => {
   if (!authOk(req)) return res.status(401).end();
