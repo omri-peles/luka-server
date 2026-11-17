@@ -107,9 +107,9 @@ async function buildSystem(s, connected) {
 
 // One streamed model call. Calls onText(delta) as text arrives; returns { content, stop_reason }
 // with the content blocks rebuilt exactly, so a tool round can be sent back to the model.
-export async function streamOnce(messages, system, tools, onText) {
+export async function streamOnce(messages, system, tools, onText, models = MODELS) {
   let lastErr = '';
-  for (const model of MODELS) {
+  for (const model of models) {
     const body = { model, max_tokens: 600, system, messages, stream: true };
     if (tools && tools.length) body.tools = tools;
     const r = await fetch('https://api.anthropic.com/v1/messages', {
@@ -215,7 +215,9 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
   for (let i = 0; i < 4; i++) {
-    const r = await streamOnce(messages, sys, tools, (t) => { full += t; splitter.push(t); });
+    // Words heard without her name need better judgement (is this even meant for her?), so those
+    // turns use the stronger model; turns that start with her name keep the fast one.
+    const r = await streamOnce(messages, sys, tools, (t) => { full += t; splitter.push(t); }, opts.followup ? ['claude-sonnet-5-5', 'claude-haiku-5-5'] : MODELS);
     if (r.stop_reason === 'tool_use') {
       splitter.flush(); if (full && !/\s$/.test(full)) full += ' ';
       const results = [];
