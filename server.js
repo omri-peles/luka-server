@@ -236,8 +236,8 @@ app.post('/chat/stream', async (req, res) => {
   if (res.flushHeaders) res.flushHeaders();
   try {
     const { chatStream } = await import('./tablet-agent.js');
-    const reply = await chatStream(text, (sentence) => res.write(JSON.stringify({ s: sentence }) + '\n'));
-    res.write(JSON.stringify({ done: true, reply }) + '\n');
+    const reply = await chatStream(text, (sentence) => res.write(JSON.stringify({ s: sentence }) + '\n'), { followup: !!req.body?.followup });
+    res.write(JSON.stringify(reply ? { done: true, reply } : { done: true, silent: true }) + '\n');
   } catch (e) {
     res.write(JSON.stringify({ error: String(e.message || e) }) + '\n');
   }

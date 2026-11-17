@@ -188,12 +188,16 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
-export async function chatStream(text, onSentence) {
+const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
+export async function chatStream(text, onSentenceRaw, opts = {}) {
+  const onSentence = (p) => { if (!SILENT.test(p)) onSentenceRaw(p); };
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
   const connected = isConnected();
-  const sys = await buildSystem(s, connected);
+  let sys = await buildSystem(s, connected);
+  sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
+  if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
   const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS];
 
   let full = '';
@@ -226,6 +230,12 @@ export async function chatStream(text, onSentence) {
   }
   splitter.flush();
   let reply = full.trim();
+  if (SILENT.test(reply)) {                         // not addressed to her: say nothing, remember nothing
+    const i = s.conversation.length - 1;
+    if (i >= 0 && s.conversation[i].role === 'user' && s.conversation[i].content === text) s.conversation.pop();
+    save();
+    return '';
+  }
   if (!reply) { reply = 'סליחה אדוני, לא הצלחתי להשלים את הפעולה. תוכל לנסות שוב?'; onSentence(reply); }
 
   s.conversation.push({ role: 'assistant', content: reply });

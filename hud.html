@@ -316,13 +316,13 @@ function playClip(buf){            // plays one clip; does not touch listening s
     }catch(e){ resolve(); }
   });
 }
-async function handleStream(text, my){
+async function handleStream(text, my, followup){
   const tok = localStorage.getItem("luka_token"); if(!tok) return false;
   const ac = new AbortController(); streamAbort = ac;
   const r = await fetch(SERVER + "/chat/stream", { method:"POST", signal: ac.signal,
-    headers:{ "content-type":"application/json", "x-luka-token":tok }, body: JSON.stringify({ text }) });
+    headers:{ "content-type":"application/json", "x-luka-token":tok }, body: JSON.stringify({ text, followup: !!followup }) });
   if(!r.ok || !r.body) return false;
-  let got = false, started = false, chain = Promise.resolve();
+  let got = false, started = false, silent = false, chain = Promise.resolve();
   const say = (sentence)=>{
     if(my !== turn) return;
     if(!got) spoken.clear();
@@ -344,6 +344,7 @@ async function handleStream(text, my){
         if(!line) continue;
         let o; try{ o = JSON.parse(line); }catch(e){ continue; }
         if(o.s) say(o.s);
+        if(o.silent) silent = true;
       }
     }
     await chain;
@@ -351,10 +352,11 @@ async function handleStream(text, my){
     if(started && my === turn){ stopViz(); speaking = false; spokeUntil = Date.now() + 500; curAudio = null; mode(""); setStatus("מקשיבה…"); flushRecog(); arm(10000); }
   }
   if(my !== turn) return true;                              // he interrupted: nothing more to do for this turn
+  if(silent && !got){ mode(""); setStatus("מקשיבה…"); return true; }   // it was not said to her: stay quiet, do not reopen the window
   if(got && !started){ mode(""); setStatus("מקשיבה…"); }   // answer arrived but audio failed
   return got;
 }
-async function handle(text){
+async function handle(text, followup){
   if(!text) return;
   if(speaking || body.className === "thinking") stopSpeaking();   // a new request replaces the current one
   const my = ++turn;
@@ -363,7 +365,7 @@ async function handle(text){
   mode("thinking"); setStatus("חושבת…");
   // Fast path: the tablet agent streams the answer and she starts speaking the first sentence
   // while the rest is still being written. Any failure before she speaks falls back below.
-  try{ if(await handleStream(text, my)) return; }catch(e){}
+  try{ if(await handleStream(text, my, followup)) return; }catch(e){}
   if(my !== turn) return;
   try{
     const reply = await askBrain(text);
@@ -407,7 +409,7 @@ function buildRecog(){
         const after = hit ? afterWake(hit) : null;
         const cand = hit ? (after && after.length >= 2 ? after : "") : (armed && best.length >= 2 ? best : "");
         clearTimeout(earlyTimer);
-        if(cand) earlyTimer = setTimeout(()=>{ committed = key; disarm(); handle(cand); }, 1000);
+        if(cand) earlyTimer = setTimeout(()=>{ committed = key; disarm(); handle(cand, !hit); }, 1000);
         continue;
       }
       clearTimeout(earlyTimer);
@@ -416,7 +418,7 @@ function buildRecog(){
         const after = afterWake(hit);
         if(after && after.length >= 2){ disarm(); handle(after); }          // "לוקה, מה השעה"
         else { arm(9000); mode("listening"); setStatus("כן אדוני?"); }       // just her name: wait for the request
-      } else if(armed && best.length >= 2){ disarm(); handle(best); }
+      } else if(armed && best.length >= 2){ disarm(); handle(best, true); }
     }
   };
   r.onend = ()=>{ running=false; setTimeout(ensureRecog,250); };
@@ -474,7 +476,7 @@ function heardText(text, seg){
     const after = afterWake(text);
     if(after && after.length >= 2){ disarm(); handle(after); }
     else { arm(9000); mode("listening"); setStatus("כן אדוני?"); }
-  } else if((armed || seg.armed) && text.length >= 2){ disarm(); handle(text); }
+  } else if((armed || seg.armed) && text.length >= 2){ disarm(); handle(text, true); }
 }
 async function sendSeg(seg, rate){
   if(earsBusy >= 3) return;                                    // never pile up
