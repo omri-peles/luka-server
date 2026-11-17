@@ -69,7 +69,9 @@ const MEMORY_TOOLS = [
 ];
 
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
-const MODELS = ['claude-haiku-5-5', 'claude-sonnet-5-5'];
+const MODELS = ['claude-sonnet-5-5', 'claude-haiku-5-5'];   // the stronger model first: measured about as fast for short spoken answers
+// Live knowledge of the world: Anthropic runs the search on its side and hands her the results.
+const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'IL', timezone: 'Asia/Jerusalem' } };
 
 // Calendar + mail context, kept warm for the tablet: answer immediately from the last copy and
 // refresh it in the background, instead of making him wait on Google before every answer.
@@ -107,10 +109,10 @@ async function buildSystem(s, connected) {
 
 // One streamed model call. Calls onText(delta) as text arrives; returns { content, stop_reason }
 // with the content blocks rebuilt exactly, so a tool round can be sent back to the model.
-export async function streamOnce(messages, system, tools, onText, models = MODELS) {
+export async function streamOnce(messages, system, tools, onText, models = MODELS, onSearch = null) {
   let lastErr = '';
   for (const model of models) {
-    const body = { model, max_tokens: 600, system, messages, stream: true };
+    const body = { model, max_tokens: 900, system, messages, stream: true };
     if (tools && tools.length) body.tools = tools;
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -124,17 +126,21 @@ export async function streamOnce(messages, system, tools, onText, models = MODEL
     const handle = (ev) => {
       if (ev.type === 'content_block_start') {
         blocks[ev.index] = { ...ev.content_block };
-        if (ev.content_block.type === 'tool_use') json[ev.index] = '';
+        const bt = ev.content_block.type;
+        if (bt === 'tool_use' || bt === 'server_tool_use') json[ev.index] = '';
+        if (bt === 'server_tool_use' && onSearch) onSearch();            // she is about to search: say what she has so far
+        if (bt === 'text' && ev.index > 0) onText(' ');
       } else if (ev.type === 'content_block_delta') {
         const b = blocks[ev.index]; const d = ev.delta || {};
         if (!b) return;
         if (d.type === 'text_delta') { b.text = (b.text || '') + d.text; onText(d.text); }
-        else if (d.type === 'input_json_delta') json[ev.index] += d.partial_json || '';
+        else if (d.type === 'input_json_delta') json[ev.index] = (json[ev.index] || '') + (d.partial_json || '');
+        else if (d.type === 'citations_delta') b.citations = [...(b.citations || []), d.citation];
         else if (d.type === 'thinking_delta') b.thinking = (b.thinking || '') + (d.thinking || '');
         else if (d.type === 'signature_delta') b.signature = d.signature;
       } else if (ev.type === 'content_block_stop') {
         const b = blocks[ev.index];
-        if (b && b.type === 'tool_use') { try { b.input = JSON.parse(json[ev.index] || '{}'); } catch { b.input = {}; } }
+        if (b && (b.type === 'tool_use' || b.type === 'server_tool_use')) { try { b.input = JSON.parse(json[ev.index] || '{}'); } catch { b.input = {}; } }
       } else if (ev.type === 'message_delta') {
         if (ev.delta && ev.delta.stop_reason) stop = ev.delta.stop_reason;
       } else if (ev.type === 'error') {
@@ -210,14 +216,16 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   let sys = await buildSystem(s, connected);
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
-  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS];
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, WEB_TOOL];
+  sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
   for (let i = 0; i < 4; i++) {
     // Words heard without her name need better judgement (is this even meant for her?), so those
     // turns use the stronger model; turns that start with her name keep the fast one.
-    const r = await streamOnce(messages, sys, tools, (t) => { full += t; splitter.push(t); }, opts.followup ? ['claude-sonnet-5-5', 'claude-haiku-5-5'] : MODELS);
+    const r = await streamOnce(messages, sys, tools, (t) => { full += t; splitter.push(t); }, MODELS, () => splitter.flush());
+    if (r.stop_reason === 'pause_turn') { messages = [...messages, { role: 'assistant', content: r.content }]; continue; }
     if (r.stop_reason === 'tool_use') {
       splitter.flush(); if (full && !/\s$/.test(full)) full += ' ';
       const results = [];
