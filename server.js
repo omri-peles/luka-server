@@ -13,6 +13,7 @@ import { takeAll, report, takeMac } from './computer.js';
 import fs from 'fs';
 import { readSite, deleteSite } from './sites.js';
 import { mountEars } from './ears.js';
+import { mountEyes } from './eyes.js';
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
 import { startWhatsApp, waStatus, waQR } from './whatsapp.js';
@@ -179,6 +180,7 @@ app.get('/conversation', (req, res) => {
 
 // ---------- TABLET EARS: speech-to-text for the tablet page (see ears.js) ----------
 mountEars(app, authOk);
+mountEyes(app, authOk);
 
 // ---------- LUKA'S HAND on the computer ----------
 app.get('/hand', (_req, res) => res.sendFile(path.resolve('./hand.html')));
@@ -241,7 +243,7 @@ app.post('/chat/stream', async (req, res) => {
   if (res.flushHeaders) res.flushHeaders();
   try {
     const { chatStream } = await import('./tablet-agent.js');
-    const reply = await chatStream(text, (sentence) => res.write(JSON.stringify({ s: sentence }) + '\n'), { followup: !!req.body?.followup });
+    const reply = await chatStream(text, (sentence) => res.write(JSON.stringify({ s: sentence }) + '\n'), { followup: !!req.body?.followup, control: (obj) => res.write(JSON.stringify(obj) + '\n') });
     res.write(JSON.stringify(reply ? { done: true, reply } : { done: true, silent: true }) + '\n');
   } catch (e) {
     res.write(JSON.stringify({ error: String(e.message || e) }) + '\n');

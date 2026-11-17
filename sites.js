@@ -85,7 +85,7 @@ function extract(t) {
   return html.length > 400 && html.length < 400000 ? html : '';
 }
 
-async function finish(slug, name, html, verb) {
+async function finish(slug, name, html, verb, say, tail) {
   fs.mkdirSync(DIR, { recursive: true });
   if (fs.existsSync(file(slug))) fs.copyFileSync(file(slug), file(slug) + '.bak');   // one step of undo
   fs.writeFileSync(file(slug), html);
@@ -95,8 +95,12 @@ async function finish(slug, name, html, verb) {
   save();
   let opened = false;
   if (computerOnline()) { const res = await openOnComputer(siteUrl(slug) + '?v=' + now.toString(36), name); opened = /^נפתח/.test(res); }
-  announce(`אדוני, האתר ${name} ${verb}` + (opened ? ' ופתוח במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותו.'));
+  announce((say || `אדוני, האתר ${name} ${verb}`) + (opened ? ' ופתוח במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותו.') + (tail ? ' ' + tail : ''));
 }
+// Used by research.js: publish a ready page the same way sites are published.
+export const publishPage = (slug, name, html, say, tail) => finish(slug, name, html, '', say, tail);
+export const pageExists = (slug) => !!index().find(x => x.slug === slug);
+export { announce };
 
 // ---- tool handlers (answer at once; the work continues in the background) ----
 export function buildSite(slug, name, brief) {

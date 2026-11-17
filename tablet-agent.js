@@ -6,7 +6,9 @@ import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
-import { buildSite, editSite, undoSite, sitesText } from './sites.js';
+import { buildSite, editSite, undoSite, sitesText, announce } from './sites.js';
+import { startResearch } from './research.js';
+import { askFrame } from './eyes.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -50,6 +52,22 @@ const SITE_TOOLS = [
     name: 'undo_site_change',
     description: 'החזרת אתר לגרסה שלפני השינוי האחרון.',
     input_schema: { type: 'object', properties: { slug: { type: 'string' } }, required: ['slug'] }
+  }
+];
+
+const EXTRA_TOOLS = [
+  {
+    name: 'research_in_depth',
+    description: 'מחקר מעמיק ברקע, לשאלות שדורשות יותר מחיפוש אחד: השוואת מוצרים או ספקים, מציאת מוצרים מנצחים למכירה, ניתוח שוק או מתחרים, סקירה יסודית של נושא. נמשך דקה עד שלוש: הכלי עונה מיד, והודעה נפרדת עם עיקרי הממצאים תגיע כשהדוח מוכן ופתוח במחשב. אמרי לאדוני שהתחלת ושתודיעי כשיהיה מוכן. לשאלה פשוטה שתשובתה עובדה אחת או שתיים השתמשי ב-web_search ולא בכלי הזה.',
+    input_schema: { type: 'object', properties: {
+      slug: { type: 'string', description: 'שם קצר לכתובת הדוח, באנגלית קטנה עם מקפים' },
+      title: { type: 'string', description: 'כותרת קצרה בעברית לנושא' },
+      question: { type: 'string', description: 'מה בדיוק אדוני רוצה לברר, במילים שלו, כולל כל תנאי שנתן (תקציב, מדינה, קהל יעד)' } }, required: ['slug', 'title', 'question'] }
+  },
+  {
+    name: 'look_through_camera',
+    description: 'צילום תמונה אחת מהמצלמה של המסך שמולו אדוני נמצא, כדי לראות מה שמולך: חפץ שהוא מחזיק, מסמך, לבוש, החדר. השתמשי בזה רק כשאדוני מבקש שתסתכלי או שואל מה את רואה. המצלמה נדלקת לרגע ונכבית.',
+    input_schema: { type: 'object', properties: { question: { type: 'string', description: 'מה אדוני רוצה לדעת על מה שרואים' } }, required: ['question'] }
   }
 ];
 
@@ -109,10 +127,10 @@ async function buildSystem(s, connected) {
 
 // One streamed model call. Calls onText(delta) as text arrives; returns { content, stop_reason }
 // with the content blocks rebuilt exactly, so a tool round can be sent back to the model.
-export async function streamOnce(messages, system, tools, onText, models = MODELS, onSearch = null) {
+export async function streamOnce(messages, system, tools, onText, models = MODELS, onSearch = null, maxTokens = 900) {
   let lastErr = '';
   for (const model of models) {
-    const body = { model, max_tokens: 900, system, messages, stream: true };
+    const body = { model, max_tokens: maxTokens, system, messages, stream: true };
     if (tools && tools.length) body.tools = tools;
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -218,7 +236,8 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   let sys = await buildSystem(s, connected);
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
-  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS];
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS];
+  sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
   const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
   sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
@@ -243,6 +262,12 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
+            : b.name === 'research_in_depth' ? startResearch((m, sy, tl, max, onT) => streamOnce(m, sy, tl, onT, MODELS, null, max), announce, inp.slug, inp.title, inp.question)
+            : b.name === 'look_through_camera' ? await (async () => {
+                const buf = await askFrame(opts.control);
+                if (!buf) return 'לא התקבלה תמונה מהמצלמה. ייתכן שאין הרשאת מצלמה בדפדפן, שאין מצלמה במכשיר, או שהבקשה לא הגיעה מהמסך של לוקה.';
+                return [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } }, { type: 'text', text: 'זו התמונה שצולמה עכשיו מהמצלמה. השאלה של אדוני: ' + (inp.question || '') }];
+              })()
             : b.name === 'build_site' ? buildSite(inp.slug, inp.name, inp.brief)
             : b.name === 'edit_site' ? editSite(inp.slug, inp.instruction)
             : b.name === 'undo_site_change' ? undoSite(inp.slug)

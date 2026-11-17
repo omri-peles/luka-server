@@ -316,6 +316,22 @@ function playClip(buf){            // plays one clip; does not touch listening s
     }catch(e){ resolve(); }
   });
 }
+// Her eyes: one frame from the camera, only when she asks for it; the camera is switched off right after.
+async function sendFrame(id){
+  const post = (body, err) => fetch(SERVER + "/camera/frame", { method:"POST",
+    headers:{ "content-type":"image/jpeg", "x-frame-id": id, "x-luka-token": localStorage.getItem("luka_token") || "", ...(err ? { "x-frame-error":"1" } : {}) }, body }).catch(()=>{});
+  let stream = null;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"user", width:{ ideal:1280 } } });
+    const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.srcObject = stream;
+    await v.play(); await new Promise(r => setTimeout(r, 700));          // let exposure settle
+    const w = Math.min(1024, v.videoWidth || 640), h = Math.round(w * (v.videoHeight || 480) / (v.videoWidth || 640));
+    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(v, 0, 0, w, h);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.82));
+    await post(blob, !blob);
+  }catch(e){ await post(new Blob(["x"]), true); }
+  finally{ try{ stream && stream.getTracks().forEach(t => t.stop()); }catch(e){} }
+}
 async function handleStream(text, my, followup){
   const tok = localStorage.getItem("luka_token"); if(!tok) return false;
   const ac = new AbortController(); streamAbort = ac;
@@ -345,6 +361,7 @@ async function handleStream(text, my, followup){
         let o; try{ o = JSON.parse(line); }catch(e){ continue; }
         if(o.s) say(o.s);
         if(o.silent) silent = true;
+        if(o.need === "camera") sendFrame(o.id);
       }
     }
     await chain;
