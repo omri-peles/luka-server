@@ -3,6 +3,7 @@
 const STORE = () => (process.env.SHOPIFY_STORE || '').replace(/^https?:\/\//, '').replace(/\.myshopify\.com.*$/, '').trim();
 const VER = () => process.env.SHOPIFY_API_VERSION || '2026-07';
 export const shopifyOn = () => !!(STORE() && process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET);
+import { confirmed, ASK } from './gate.js';
 let tok = { value: '', exp: 0 };
 
 async function token() {
@@ -46,4 +47,22 @@ export async function shopifyProducts(query, lowStock) {
     if (!p.length) return 'לא נמצאו מוצרים מתאימים בחנות.';
     return p.map(x => `- ${x.title}: ${Number(x.priceRangeV2.minVariantPrice.amount).toLocaleString('he-IL')} ${x.priceRangeV2.minVariantPrice.currencyCode}, מלאי ${x.totalInventory}, מצב ${x.status}`).join('\n');
   } catch (e) { return 'לא הצלחתי לקרוא מוצרים. ' + e.message; }
+}
+
+export async function shopifySetPrice(title, price) {
+  try {
+    const t = (title || '').toString().trim(); const p = Number(price);
+    if (t.length < 2 || !(p > 0 && p < 1000000)) return 'לא בוצע: חסר שם מוצר או מחיר תקין.';
+    const data = await gql(`query($q:String!){ products(first:5, query:$q){ edges{ node{ id title variants(first:20){ edges{ node{ id price } } } } } } }`, { q: 'title:*' + t.replace(/["\\]/g, ' ') + '*' });
+    const found = data.products.edges.map(e => e.node);
+    if (!found.length) return 'לא בוצע: לא נמצא מוצר בשם הזה בחנות.';
+    if (found.length > 1) return 'לא בוצע: נמצאו כמה מוצרים מתאימים, צריך שם מדויק יותר: ' + found.map(x => x.title).join(' | ');
+    const prod = found[0]; const vars = prod.variants.edges.map(e => e.node);
+    const old = [...new Set(vars.map(v => v.price))].join(', ');
+    if (!confirmed('price:' + prod.id + '|' + p)) return ASK(`שינוי המחיר של "${prod.title}" מ-${old} ל-${p}, בכל ${vars.length} הגרסאות שלו`);
+    const res = await gql(`mutation($id:ID!,$v:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$id, variants:$v){ userErrors{ message } } }`, { id: prod.id, v: vars.map(v => ({ id: v.id, price: String(p) })) });
+    const errs = res.productVariantsBulkUpdate.userErrors || [];
+    if (errs.length) return 'המחיר לא שונה: ' + errs.map(e => e.message).join('; ');
+    return `המחיר של "${prod.title}" שונה מ-${old} ל-${p}.`;
+  } catch (e) { return 'המחיר לא שונה. ' + e.message + ' אם כתוב שחסרה הרשאה, צריך להוסיף לאפליקציה בשופיפיי את ההרשאה write_products.'; }
 }

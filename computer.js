@@ -5,6 +5,7 @@ const queue = [];
 let lastSeen = 0;
 let macSeen = 0, macWake = null, macVersion = 1;
 export const macCanReadFiles = () => macOnline() && macVersion >= 2;
+export const macV3 = () => macOnline() && macVersion >= 3;
 
 export function computerOnline() { return Date.now() - lastSeen < 12000 || Date.now() - macSeen < 45000; }
 export function takeAll() {
@@ -32,7 +33,7 @@ const clean = v => (v == null ? '' : String(v)).replace(/[\t\r\n]+/g, ' ').trim(
 function macLines() {
   const fresh = macQueue.filter(c => Date.now() - c.at < 60000);
   macQueue.length = 0;
-  return fresh.map(c => [c.id, c.type, clean(c.type === 'open' ? c.url : c.what), clean(c.label)].join('\t')).join('\n');
+  return fresh.map(c => [c.id, c.type, clean(c.type === 'open' ? c.url : c.what) || '-', clean(c.label)].join('\t')).join('\n');
 }
 // Long poll: answers at once when a command is waiting, otherwise holds up to waitMs.
 export function takeMac(waitMs = 25000, version = 1) {
@@ -108,3 +109,35 @@ export function readOnMac(path) {
   const id = send({ type: 'read', what: p });
   return waitFor(id, 12000).then(r => r || 'לא התקבלה תשובה מהמחשב.');
 }
+
+// Helper version 3+: new text file, move to Trash (behind the spoken confirmation), open a file,
+// music playback, display off.
+import { confirmed, ASK } from './gate.js';
+const OLD = 'לא בוצע: תוכנת העזר במק לא מחוברת, או שהיא בגרסה ישנה. צריך להריץ שוב את פקודת ההתקנה במק.';
+const okPath = (p) => /^(Desktop|Documents|Downloads)\//.test(p) && !/\.\./.test(p);
+const ask = (cmd, ms = 10000) => waitFor(send(cmd), ms).then(r => r || 'לא התקבלה תשובה מהמחשב.');
+export function writeOnMac(path, text) {
+  const p = clean(path); const body = (text || '').toString();
+  if (!okPath(p) || !/\.(txt|md|csv)$/i.test(p)) return 'לא בוצע: הנתיב צריך להתחיל ב-Desktop/, Documents/ או Downloads/ ולהסתיים ב-.txt, .md או .csv.';
+  if (!body || body.length > 20000) return 'לא בוצע: התוכן ריק או ארוך מדי.';
+  if (!macV3()) return OLD;
+  return ask({ type: 'write', what: p, label: Buffer.from(body, 'utf8').toString('base64') });
+}
+export function trashOnMac(path) {
+  const p = clean(path);
+  if (!okPath(p)) return 'לא בוצע: הנתיב צריך להיות כפי שחזר מהחיפוש.';
+  if (!macV3()) return OLD;
+  if (!confirmed('trash:' + p)) return ASK(`העברת הקובץ ${p} לאשפה במחשב`);
+  return ask({ type: 'trash', what: p });
+}
+export function openFileOnMac(path) {
+  const p = clean(path);
+  if (!okPath(p)) return 'לא בוצע: הנתיב צריך להיות כפי שחזר מהחיפוש.';
+  return macV3() ? ask({ type: 'openfile', what: p }) : OLD;
+}
+export function mediaOnMac(action) {
+  const a = clean(action);
+  if (!/^(play|pause|playpause|next|previous)$/.test(a)) return 'לא בוצע: פעולה לא מוכרת.';
+  return macV3() ? ask({ type: 'media', what: a }) : OLD;
+}
+export function displayOffOnMac() { return macV3() ? ask({ type: 'displaysleep', what: '-' }) : OLD; }

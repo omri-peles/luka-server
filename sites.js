@@ -48,14 +48,14 @@ const RULES = `את בונה דף אינטרנט אחד, שלם ומוכן לש�
 - בלי טפסים ששולחים מידע לשרת ובלי קוד מעקב. כפתורי יצירת קשר יכולים להיות קישורי tel:, mailto: או wa.me אם נמסר מספר.
 - הקוד קצר ויעיל: עד כ-400 שורות.`;
 
-async function generate(userContent) {
+async function generate(userContent, maxTokens = 14000) {
   let lastErr = '';
   for (const model of MODELS) {
     try {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({ model, max_tokens: 14000, system: RULES, stream: true, messages: [{ role: 'user', content: userContent }] })
+        body: JSON.stringify({ model, max_tokens: maxTokens, system: RULES, stream: true, messages: [{ role: 'user', content: userContent }] })
       });
       if (!r.ok || !r.body) { lastErr = model + ' HTTP ' + r.status; continue; }
       const dec = new TextDecoder(); let buf = '', out = '', stop = '';
@@ -103,7 +103,7 @@ export const pageExists = (slug) => !!index().find(x => x.slug === slug);
 export { announce };
 
 // ---- tool handlers (answer at once; the work continues in the background) ----
-export function buildSite(slug, name, brief) {
+export function buildSite(slug, name, brief, pages) {
   slug = (slug || '').toString().toLowerCase().trim(); name = (name || '').toString().trim().slice(0, 60); brief = (brief || '').toString().trim();
   if (!okSlug(slug)) return 'לא התחלתי: slug צריך להיות באנגלית קטנה, ספרות ומקפים בלבד, 3 עד 40 תווים.';
   if (!name || brief.length < 10) return 'לא התחלתי: חסר שם לאתר או תיאור של מה שהוא צריך להכיל.';
@@ -113,11 +113,13 @@ export function buildSite(slug, name, brief) {
   if (list.find(x => x.slug === slug)) return `לא התחלתי: כבר קיים אתר עם ה-slug ${slug}. לשינוי בו השתמשי ב-edit_site, או בחרי slug אחר לאתר חדש.`;
   if (list.length >= MAX_SITES) return 'לא התחלתי: הגענו למספר האתרים המרבי (30). צריך למחוק אתר ישן קודם.';
   busy.add(slug);
-  generate('בני דף אינטרנט לפי הבקשה הבאה.\nשם האתר: ' + name + '\nהבקשה: ' + brief)
+  const many = Array.isArray(pages) ? pages.map(x => String(x).trim()).filter(Boolean).slice(0, 6) : [];
+  const multi = many.length > 1 ? '\nזה אתר עם כמה עמודים, כולם בקובץ אחד: ' + many.join(', ') + '. בני תפריט ניווט עליון קבוע, וכל עמוד הוא חלק נפרד שמוצג לבדו לפי הכתובת (hash, למשל #about); בטעינה מוצג העמוד הראשון. הקוד יכול להגיע עד כ-900 שורות.' : '';
+  generate('בני דף אינטרנט לפי הבקשה הבאה.\nשם האתר: ' + name + '\nהבקשה: ' + brief + multi, multi ? 26000 : 14000)
     .then(html => finish(slug, name, html, 'מוכן'))
     .catch(e => { console.error('site build failed', slug, e.message); announce(`אדוני, לא הצלחתי לבנות את האתר ${name}. אפשר לבקש ממני שוב.`); })
     .finally(() => busy.delete(slug));
-  return `התחלתי לבנות את האתר "${name}". זה לוקח בערך דקה. כשהוא יהיה מוכן אפתח אותו במחשב ואודיע. הכתובת שלו תהיה ${siteUrl(slug)}`;
+  return `התחלתי לבנות את האתר "${name}". זה לוקח ${many.length > 1 ? 'שתיים עד ארבע דקות' : 'בערך דקה'}. כשהוא יהיה מוכן אפתח אותו במחשב ואודיע. הכתובת שלו תהיה ${siteUrl(slug)}`;
 }
 
 export function editSite(slug, instruction) {

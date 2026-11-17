@@ -13,7 +13,10 @@ import { setReminder, listReminders, cancelReminder } from './reminders.js';
 import { shopifyOn, shopifyOrders, shopifyProducts } from './shopify.js';
 import { imagesOn, makeImage } from './imagegen.js';
 import { driveOn, driveSearch, driveRead } from './drive.js';
-import { macCanReadFiles, findOnMac, readOnMac } from './computer.js';
+import { macCanReadFiles, findOnMac, readOnMac, macV3, writeOnMac, trashOnMac, openFileOnMac, mediaOnMac, displayOffOnMac } from './computer.js';
+import { shopifySetPrice } from './shopify.js';
+import { mailOn, sendEmail } from './mail.js';
+import { newTurn } from './gate.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -42,11 +45,12 @@ const COMPUTER_TOOLS = [
 const SITE_TOOLS = [
   {
     name: 'build_site',
-    description: 'בניית אתר חדש של דף אחד (דף נחיתה, דף מוצר, דף עסק) לפי בקשת אדוני. הבנייה נמשכת כדקה ברקע: הכלי עונה מיד, והודעה נפרדת תגיע כשהאתר מוכן. אמרי לאדוני שהתחלת ושתודיעי כשיהיה מוכן; אל תאמרי שהאתר כבר מוכן. ב-brief כתבי את כל מה שאדוני ביקש, במילים שלו, בלי להמציא פרטים שלא נמסרו.',
+    description: 'בניית אתר חדש לפי בקשת אדוני: דף אחד (דף נחיתה, דף מוצר, דף עסק) או אתר עם כמה עמודים (מסרי pages). אין בו תשלומים או עגלת קניות. הבנייה נמשכת דקה עד ארבע ברקע: הכלי עונה מיד, והודעה נפרדת תגיע כשהאתר מוכן. אמרי לאדוני שהתחלת ושתודיעי כשיהיה מוכן; אל תאמרי שהאתר כבר מוכן. ב-brief כתבי את כל מה שאדוני ביקש, במילים שלו, בלי להמציא פרטים שלא נמסרו.',
     input_schema: { type: 'object', properties: {
       slug: { type: 'string', description: 'שם קצר לכתובת, באנגלית קטנה עם מקפים, למשל: pizza-roma' },
       name: { type: 'string', description: 'שם האתר כפי שאדוני קורא לו' },
-      brief: { type: 'string', description: 'תיאור מלא: למי האתר, מה הוא מציג, סגנון, צבעים, טקסטים ופרטי קשר שנמסרו' } }, required: ['slug', 'name', 'brief'] }
+      brief: { type: 'string', description: 'תיאור מלא: למי האתר, מה הוא מציג, סגנון, צבעים, טקסטים ופרטי קשר שנמסרו' },
+      pages: { type: 'array', items: { type: 'string' }, description: 'רק לאתר עם כמה עמודים: שמות העמודים, עד שישה (למשל: בית, אודות, מוצרים, צור קשר). לדף אחד אל תמסרי.' } }, required: ['slug', 'name', 'brief'] }
   },
   {
     name: 'edit_site',
@@ -96,6 +100,20 @@ const DRIVE_TOOLS = [
 const MACFILE_TOOLS = [
   { name: 'find_file_on_computer', description: 'חיפוש קובץ לפי שם במק של אדוני, בתיקיות שולחן העבודה, מסמכים והורדות.', input_schema: { type: 'object', properties: { name: str('שם הקובץ או חלק ממנו') }, required: ['name'] } },
   { name: 'read_file_on_computer', description: 'קריאת קובץ טקסט, CSV או Word מהמק של אדוני, לפי הנתיב שחזר מהחיפוש (מתחיל ב-Desktop/, Documents/ או Downloads/).', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }
+];
+
+const MAIL_TOOLS = [
+  { name: 'send_email', description: 'שליחת מייל מהחשבון של אדוני. בקריאה הראשונה הכלי לא שולח: הוא מחזיר לך הוראה להקריא לאדוני את הנמען, הנושא והתוכן ולשאול אם לאשר. רק אחרי שאדוני אישר, קראי שוב עם אותם פרטים.', input_schema: { type: 'object', properties: { to: str('כתובת מייל מלאה אחת'), subject: str('נושא'), body: str('תוכן המייל') }, required: ['to', 'subject', 'body'] } }
+];
+const SHOP_WRITE_TOOLS = [
+  { name: 'shop_set_price', description: 'שינוי מחיר של מוצר בחנות של אדוני. בקריאה הראשונה הכלי לא משנה: הוא מחזיר לך מה ישתנה, ואת מקריאה ושואלת אם לאשר. רק אחרי שאדוני אישר, קראי שוב עם אותם פרטים.', input_schema: { type: 'object', properties: { title: str('שם המוצר'), price: { type: 'number', description: 'המחיר החדש, במטבע של החנות' } }, required: ['title', 'price'] } }
+];
+const MAC3_TOOLS = [
+  { name: 'write_file_on_computer', description: 'יצירת קובץ טקסט חדש במק של אדוני (txt, md או csv) בתוך Desktop/, Documents/ או Downloads/. לא דורס קובץ קיים.', input_schema: { type: 'object', properties: { path: str('למשל Desktop/רשימה.txt'), text: str('תוכן הקובץ') }, required: ['path', 'text'] } },
+  { name: 'trash_file_on_computer', description: 'העברת קובץ לאשפה במק של אדוני (אפשר לשחזר מהאשפה). בקריאה הראשונה הכלי לא מעביר: את מקריאה את שם הקובץ ושואלת אם לאשר, ורק אחרי אישור קוראת שוב.', input_schema: { type: 'object', properties: { path: str('הנתיב כפי שחזר מהחיפוש') }, required: ['path'] } },
+  { name: 'open_file_on_computer', description: 'פתיחת קובץ במק של אדוני, לפי הנתיב שחזר מהחיפוש.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+  { name: 'control_music', description: 'שליטה במוזיקה במק של אדוני (ספוטיפיי או מיוזיק): play, pause, playpause, next, previous.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['play', 'pause', 'playpause', 'next', 'previous'] } }, required: ['action'] } },
+  { name: 'turn_off_computer_display', description: 'כיבוי המסך של המק של אדוני (המחשב עצמו נשאר דלוק).', input_schema: { type: 'object', properties: {} } }
 ];
 
 const MEMORY_TOOLS = [
@@ -241,7 +259,11 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
 let webOk = true, webErr = '';
-export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles() }; }
+export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles(), mail: mailOn(), macV3: macV3() }; }
+// Short everyday requests (clock, weather, calendar, reminders, opening and closing things) get the
+// fast model first; everything else gets the stronger one.
+const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|בוקר טוב|לילה טוב|תעצרי|מוזיקה|השיר/;
+const pickModels = (text, followup) => (!followup && text.length <= 60 && QUICK.test(text) ? ['claude-haiku-5-5', 'claude-sonnet-5-5'] : MODELS);
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export async function chatStream(text, onSentenceRaw, opts = {}) {
@@ -257,6 +279,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     if (sofar.length >= 45) { decided = true; for (const h of held) onSentenceRaw(h); held = []; }
   };
   const releaseHeld = () => { if (!mute && !decided) { decided = true; for (const h of held) onSentenceRaw(h); held = []; } };
+  newTurn();
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
@@ -265,8 +288,9 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
   const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS, ...REMINDER_TOOLS,
-    ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : [])];
-  sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
+    ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
+    ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : [])];
+  sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
   const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
   sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. אל תחפשי באינטרנט את השעה, התאריך, היומן, המייל, הוואטסאפ או מזג האוויר: אלה נמצאים אצלך בנתונים שלמעלה ובכלים הייעודיים, והשעון שלמעלה מדויק. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
@@ -276,7 +300,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     // Words heard without her name need better judgement (is this even meant for her?), so those
     // turns use the stronger model; turns that start with her name keep the fast one.
     let r;
-    const run = () => streamOnce(messages, sys, withWeb(), (t) => { full += t; splitter.push(t); }, MODELS, () => splitter.flush());
+    const run = () => streamOnce(messages, sys, withWeb(), (t) => { full += t; splitter.push(t); }, pickModels(text, opts.followup), () => splitter.flush());
     try { r = await run(); }
     catch (e) {                                   // if the search tool itself is refused, carry on without it
       if (webOk && /HTTP 400/.test(String(e.message)) && !full) { webOk = false; webErr = String(e.message).slice(0, 400); r = await run(); }
@@ -291,6 +315,13 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
+            : b.name === 'send_email' ? await sendEmail(inp.to, inp.subject, inp.body)
+            : b.name === 'shop_set_price' ? await shopifySetPrice(inp.title, inp.price)
+            : b.name === 'write_file_on_computer' ? await writeOnMac(inp.path, inp.text)
+            : b.name === 'trash_file_on_computer' ? await trashOnMac(inp.path)
+            : b.name === 'open_file_on_computer' ? await openFileOnMac(inp.path)
+            : b.name === 'control_music' ? await mediaOnMac(inp.action)
+            : b.name === 'turn_off_computer_display' ? await displayOffOnMac()
             : b.name === 'set_reminder' ? setReminder(inp.in_minutes, inp.text)
             : b.name === 'list_reminders' ? listReminders()
             : b.name === 'cancel_reminder' ? cancelReminder(inp.text)
@@ -307,7 +338,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
                 if (!buf) return 'לא התקבלה תמונה מהמצלמה. ייתכן שאין הרשאת מצלמה בדפדפן, שאין מצלמה במכשיר, או שהבקשה לא הגיעה מהמסך של לוקה.';
                 return [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } }, { type: 'text', text: 'זו התמונה שצולמה עכשיו מהמצלמה. השאלה של אדוני: ' + (inp.question || '') }];
               })()
-            : b.name === 'build_site' ? buildSite(inp.slug, inp.name, inp.brief)
+            : b.name === 'build_site' ? buildSite(inp.slug, inp.name, inp.brief, inp.pages)
             : b.name === 'edit_site' ? editSite(inp.slug, inp.instruction)
             : b.name === 'undo_site_change' ? undoSite(inp.slug)
             : b.name === 'open_on_computer' ? await openOnComputer(inp.url, inp.label)

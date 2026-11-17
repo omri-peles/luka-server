@@ -1,8 +1,10 @@
 #!/bin/bash
 # Luka's hand on the Mac. Runs in the background and carries out a fixed, short list of
 # actions that Luka asks for: open a web address, close Chrome tabs by name, open an app,
-# set the volume, find a file by name and read a text or Word file (only inside Desktop,
-# Documents and Downloads, read-only). It cannot run arbitrary commands and it never updates itself.
+# set the volume, control music playback, turn the display off, and work with files only inside
+# Desktop, Documents and Downloads: find by name, read text/Word, open, create a NEW text file
+# (never overwrites), and move a file to the Trash. It cannot run arbitrary commands and it
+# never updates itself.
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 DIR="$HOME/.luka"
 SERVER="$(cat "$DIR/server" 2>/dev/null)"
@@ -74,6 +76,43 @@ end run
 APPLESCRIPT
 }
 
+safe_path() {  # prints the real path of a file inside Desktop / Documents / Downloads, or nothing
+  local rel="$1"
+  case "$rel" in *..*|/*) return 1 ;; esac
+  case "$rel" in Desktop/*|Documents/*|Downloads/*) ;; *) return 1 ;; esac
+  local f="$HOME/$rel"
+  [ -f "$f" ] && [ ! -L "$f" ] || return 1
+  local real; real="$(cd "$(/usr/bin/dirname "$f")" 2>/dev/null && pwd -P)/$(/usr/bin/basename "$f")"
+  case "$real" in "$HOME/Desktop/"*|"$HOME/Documents/"*|"$HOME/Downloads/"*) printf '%s' "$real" ;; *) return 1 ;; esac
+}
+write_file() {  # new text file only (never overwrites); content arrives base64-encoded
+  local rel="$1"
+  case "$rel" in *..*|/*) echo "לא נכתב: נתיב לא תקין."; return ;; esac
+  case "$rel" in Desktop/*|Documents/*|Downloads/*) ;; *) echo "לא נכתב: אפשר לכתוב רק לתוך Desktop, Documents או Downloads."; return ;; esac
+  case "$(printf '%s' "$rel" | /usr/bin/tr 'A-Z' 'a-z')" in *.txt|*.md|*.csv) ;; *) echo "לא נכתב: אפשר ליצור רק קובצי txt, md או csv."; return ;; esac
+  local f="$HOME/$rel"
+  [ -d "$(/usr/bin/dirname "$f")" ] || { echo "לא נכתב: התיקייה לא קיימת."; return; }
+  [ -e "$f" ] && { echo "לא נכתב: כבר קיים קובץ בשם הזה, ואיני דורסת קבצים."; return; }
+  printf '%s' "$2" | /usr/bin/base64 -D > "$f" 2>/dev/null && echo "הקובץ נוצר: $rel" || { /bin/rm -f "$f"; echo "לא נכתב: שגיאה בכתיבה."; }
+}
+trash_file() {  # moves a file to the Trash through Finder, so it can be put back
+  local real; real="$(safe_path "$1")" || { echo "לא הועבר לאשפה: הקובץ לא נמצא או מחוץ לתיקיות המותרות."; return; }
+  /usr/bin/osascript - "$real" >/dev/null 2>&1 <<'APPLESCRIPT' && echo "הקובץ הועבר לאשפה: $1 (אפשר לשחזר אותו מהאשפה)." || echo "לא הועבר לאשפה: המק לא אישר, או שחסרה הרשאה לשלוט ב-Finder."
+on run argv
+  tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)
+end run
+APPLESCRIPT
+}
+media() {  # play | pause | playpause | next | previous, in Spotify or Music (whichever is open)
+  local app=""
+  /usr/bin/pgrep -x "Spotify" >/dev/null 2>&1 && app="Spotify"
+  [ -z "$app" ] && /usr/bin/pgrep -x "Music" >/dev/null 2>&1 && app="Music"
+  [ -z "$app" ] && { echo "לא בוצע: ספוטיפיי ומיוזיק לא פתוחים במחשב."; return; }
+  local cmd=""
+  case "$1" in play) cmd="play" ;; pause) cmd="pause" ;; playpause) cmd="playpause" ;; next) cmd="next track" ;; previous) cmd="previous track" ;; *) echo "לא בוצע: פעולה לא מוכרת."; return ;; esac
+  /usr/bin/osascript -e "tell application \"$app\" to $cmd" >/dev/null 2>&1 && echo "בוצע ב-$app: $1." || echo "לא בוצע: המק לא אישר שליטה ב-$app."
+}
+
 read_file() {  # path relative to the home folder, only inside Desktop / Documents / Downloads; read-only
   local rel="$1"
   case "$rel" in *..*|/*) echo "לא נקרא: נתיב לא תקין."; return ;; esac
@@ -113,6 +152,11 @@ handle() {  # type, a1, a2
         [ -z "$FOUND" ] && echo "לא נמצאו קבצים בשם הזה בשולחן העבודה, במסמכים או בהורדות." || echo "$FOUND"
       fi ;;
     read) read_file "$2" ;;
+    write) write_file "$2" "$3" ;;
+    trash) trash_file "$2" ;;
+    openfile) REAL="$(safe_path "$2")" && /usr/bin/open "$REAL" && echo "הקובץ נפתח במחשב: $2" || echo "לא נפתח: הקובץ לא נמצא או מחוץ לתיקיות המותרות." ;;
+    media) media "$2" ;;
+    displaysleep) /usr/bin/pmset displaysleepnow >/dev/null 2>&1 && echo "המסך של המחשב כובה." || echo "לא בוצע." ;;
     *) echo "לא בוצע: פעולה לא מוכרת." ;;
   esac
 }
@@ -121,7 +165,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 2" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 3" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"

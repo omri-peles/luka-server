@@ -6,6 +6,7 @@ import { oauthClient } from './google.js';
 import { get, set } from './store.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.readonly'];
+const MORE = [...SCOPES, 'https://www.googleapis.com/auth/gmail.send'];
 export const driveOn = () => { const g = get('google'); return !!(g && g.refresh_token && /drive/.test(g.scope || '')); };
 
 function drive() {
@@ -16,6 +17,7 @@ function drive() {
 export function mountDrive(app) {
   // The approval link. The answer comes back to the existing /auth/google/callback.
   app.get('/auth/google/drive', (_req, res) => res.redirect(oauthClient().generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: SCOPES })));
+  app.get('/auth/google/more', (_req, res) => res.redirect(oauthClient().generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: MORE })));
 }
 const KIND = { 'application/vnd.google-apps.document': 'מסמך', 'application/vnd.google-apps.spreadsheet': 'גיליון', 'application/vnd.google-apps.presentation': 'מצגת', 'application/pdf': 'PDF', 'application/vnd.google-apps.folder': 'תיקייה' };
 
