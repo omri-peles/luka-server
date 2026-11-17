@@ -164,6 +164,11 @@ app.post('/tts', async (req, res) => {
   } catch (e) { res.status(502).json({ error: 'tts' }); }
 });
 
+app.get('/agent/status', async (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  try { const { agentStatus } = await import('./tablet-agent.js'); res.json(agentStatus()); } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
+
 // ---------- owner-only: read the recent conversation (for checking what she heard and said) ----------
 app.get('/conversation', (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: 'bad token' });

@@ -119,7 +119,7 @@ export async function streamOnce(messages, system, tools, onText, models = MODEL
       headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify(body)
     });
-    if (!r.ok || !r.body) { lastErr = model + ' HTTP ' + r.status; continue; }
+    if (!r.ok || !r.body) { let detail = ''; try { detail = (await r.text()).slice(0, 300); } catch {} lastErr = model + ' HTTP ' + r.status + ' ' + detail; continue; }
 
     const blocks = []; const json = {}; let stop = '';
     const dec = new TextDecoder(); let buf = '';
@@ -194,6 +194,8 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
+let webOk = true, webErr = '';
+export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS }; }
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export async function chatStream(text, onSentenceRaw, opts = {}) {
@@ -216,7 +218,8 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   let sys = await buildSystem(s, connected);
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
-  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, WEB_TOOL];
+  const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS];
+  const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
   sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
   let full = '';
@@ -224,7 +227,13 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   for (let i = 0; i < 4; i++) {
     // Words heard without her name need better judgement (is this even meant for her?), so those
     // turns use the stronger model; turns that start with her name keep the fast one.
-    const r = await streamOnce(messages, sys, tools, (t) => { full += t; splitter.push(t); }, MODELS, () => splitter.flush());
+    let r;
+    const run = () => streamOnce(messages, sys, withWeb(), (t) => { full += t; splitter.push(t); }, MODELS, () => splitter.flush());
+    try { r = await run(); }
+    catch (e) {                                   // if the search tool itself is refused, carry on without it
+      if (webOk && /HTTP 400/.test(String(e.message)) && !full) { webOk = false; webErr = String(e.message).slice(0, 400); r = await run(); }
+      else throw e;
+    }
     if (r.stop_reason === 'pause_turn') { messages = [...messages, { role: 'assistant', content: r.content }]; continue; }
     if (r.stop_reason === 'tool_use') {
       splitter.flush(); if (full && !/\s$/.test(full)) full += ' ';
