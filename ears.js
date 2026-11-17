@@ -6,7 +6,7 @@ import express from 'express';
 
 const KEY = () => process.env.ELEVENLABS_API_KEY || '';
 const DAILY_MIN = () => Number(process.env.STT_DAILY_MIN || 240);     // safety cap: minutes of audio per day
-let day = '', usedSec = 0, useKeyterms = true;
+let day = '', usedSec = 0, tokens = 0, useKeyterms = true;
 
 async function transcribe(buf, type) {
   const call = async (withTerms) => {
@@ -41,8 +41,23 @@ export function mountEars(app, authOk) {
     try { res.json({ text: await transcribe(buf, req.get('content-type')) }); }
     catch (e) { console.error(e.message); res.status(502).json({ error: 'stt', detail: e.message }); }
   });
+  // Live transcription: the tablet talks to ElevenLabs directly over a WebSocket, using a
+  // short-lived single-use token from here (the real key never leaves the server).
+  app.post('/stt/token', async (req, res) => {
+    if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== day) { day = today; usedSec = 0; tokens = 0; }
+    usedSec += Math.max(0, Math.min(3600, Number(req.get('x-used-seconds')) || 0));   // what the tablet streamed since its last token
+    if (usedSec > DAILY_MIN() * 60 || tokens >= 3000) return res.status(429).json({ error: 'daily-cap' });
+    try {
+      const r = await fetch('https://api.elevenlabs.io/v1/single-use-token/realtime_scribe', { method: 'POST', headers: { 'xi-api-key': KEY() } });
+      if (!r.ok) return res.status(502).json({ error: 'token', detail: 'HTTP ' + r.status + ' ' + (await r.text()).slice(0, 160) });
+      tokens++;
+      res.json({ token: (await r.json()).token });
+    } catch (e) { res.status(502).json({ error: 'token' }); }
+  });
   app.get('/stt/usage', (req, res) => {
     if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
-    res.json({ day, minutesToday: Math.round(usedSec / 6) / 10, capMinutes: DAILY_MIN(), keyterms: useKeyterms });
+    res.json({ day, minutesToday: Math.round(usedSec / 6) / 10, capMinutes: DAILY_MIN(), keyterms: useKeyterms, liveTokens: tokens });
   });
 }

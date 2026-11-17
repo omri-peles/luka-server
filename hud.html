@@ -440,10 +440,11 @@ function flushRecog(){ clearTimeout(earlyTimer); earsDrop = true; try{ recog && 
 // Chosen automatically on Android or when the browser has no speech recognition.
 // Force with /luka?ears=server , go back with /luka?ears=browser .
 const EARS = (()=>{
-  try{ const q = new URLSearchParams(location.search).get("ears"); if(q === "server" || q === "browser") localStorage.setItem("ears", q); }catch(e){}
-  const saved = localStorage.getItem("ears"); if(saved === "server" || saved === "browser") return saved;
+  const ok = v => v === "live" || v === "server" || v === "browser";
+  try{ const q = new URLSearchParams(location.search).get("ears"); if(ok(q)) localStorage.setItem("ears", q); }catch(e){}
+  const saved = localStorage.getItem("ears"); if(ok(saved)) return saved;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  return (!SR || /Android/i.test(navigator.userAgent)) ? "server" : "browser";
+  return (!SR || /Android/i.test(navigator.userAgent)) ? "live" : "browser";
 })();
 let earsDrop = false, earsBusy = 0;
 function wavFrom(chunks, rate){
@@ -487,6 +488,63 @@ async function sendSeg(seg, rate){
     const j = await r.json(); heardText(j.text, seg);
   }catch(e){} finally{ earsBusy--; }
 }
+// ---- live transcription (ears=live): words come back while he is still talking. If the live
+// line is not ready or does not answer in time, the same recording goes the slower way (/stt). ----
+const live = { ws:null, ready:false, opening:false, sent:0, fails:0, queue:[] };
+function to16k(x, rate){
+  const ratio = rate / 16000, m = Math.floor(x.length / ratio), out = new Int16Array(m);
+  for(let i=0;i<m;i++){
+    const a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio));
+    let sum = 0; for(let k=a;k<b && k<x.length;k++) sum += x[k];
+    const v = Math.max(-1, Math.min(1, sum / (b - a))); out[i] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+  }
+  return out;
+}
+function b64(i16){ const u = new Uint8Array(i16.buffer, i16.byteOffset, i16.byteLength); let t = ""; for(let i=0;i<u.length;i+=8192) t += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(t); }
+async function liveOpen(){
+  if(live.opening || (live.ws && live.ws.readyState <= 1)) return;
+  live.opening = true;
+  try{
+    const r = await fetch(SERVER + "/stt/token", { method:"POST", headers:{ "x-luka-token": localStorage.getItem("luka_token") || "", "x-used-seconds": live.sent.toFixed(1) } });
+    if(!r.ok){ live.fails++; return; }
+    live.sent = 0;
+    const q = new URLSearchParams({ model_id:"scribe_v2_realtime", token:(await r.json()).token, audio_format:"pcm_16000", language_code:"he", commit_strategy:"manual" });
+    if(!localStorage.getItem("live_noterms")) q.append("keyterms", "לוקה");
+    const ws = new WebSocket("wss://api.elevenlabs.io/v1/speech-to-text/realtime?" + q.toString());
+    live.ws = ws; live.ready = false; let started = false;
+    ws.onmessage = (ev)=>{
+      let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
+      const t = m.message_type || "";
+      if(t === "session_started"){ started = true; live.ready = true; live.fails = 0; }
+      else if(t === "partial_transcript") livePartial(m.text || "");
+      else if(t === "committed_transcript") liveFinal(m.text || "");
+      else if(/invalid_request|InvalidRequest/i.test(t) && !started) localStorage.setItem("live_noterms", "1");
+      live.last = t + (m.error ? ": " + m.error : "");
+    };
+    ws.onclose = ()=>{ live.ready = false; if(live.ws === ws) live.ws = null; if(!started) live.fails++;
+      setTimeout(liveOpen, Math.min(60000, 1500 * Math.pow(2, Math.min(live.fails, 5)))); };
+  }catch(e){ live.fails++; } finally{ live.opening = false; }
+}
+function livePush(x, rate, commit){
+  if(!live.ready || !live.ws || live.ws.readyState !== 1) return false;
+  const i16 = to16k(x, rate); live.sent += i16.length / 16000;
+  try{ live.ws.send(JSON.stringify({ message_type:"input_audio_chunk", audio_base_64: b64(i16), commit: !!commit })); return true; }catch(e){ return false; }
+}
+function livePartial(text){
+  if(!WAKE.test(text)) return;                                   // her name, heard mid-sentence: react at once
+  if(speaking){ if(spoken.has("לוקה")) return; stopSpeaking(1); }
+  if(!armed){ arm(9000); mode("listening"); setStatus("כן אדוני?"); }
+}
+function liveFinal(text){
+  const w = live.queue.shift(); if(!w) return;
+  clearTimeout(w.timer); heardText(text, w.seg);
+}
+function liveEnd(seg, rate){                                       // end of his sentence: ask for the final text
+  const ok = seg.live && livePush(new Float32Array(Math.round(rate * 0.1)), rate, true);
+  if(!ok){ sendSeg(seg, rate); return; }
+  const w = { seg, timer: setTimeout(()=>{ const i = live.queue.indexOf(w); if(i >= 0) live.queue.splice(i, 1); sendSeg(seg, rate); }, 2500) };
+  live.queue.push(w);
+}
 async function startEars(){
   let stream;
   try{ stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 } }); }
@@ -507,17 +565,20 @@ async function startEars(){
       pre.push(new Float32Array(x)); preMs += ms; while(preMs > 350){ pre.shift(); preMs -= ms; }
       voiced = loud ? voiced + ms : 0;
       if(voiced >= 90){
-        seg = { chunks: pre.slice(), ms: preMs, speech: voiced, overHer: speaking, armed };
+        seg = { chunks: pre.slice(), ms: preMs, speech: voiced, overHer: speaking, armed, live: false };
+        if(EARS === "live" && live.ready){ seg.live = true; for(const c of seg.chunks) livePush(c, rate); }
         pre = []; preMs = 0; quiet = 0;
         if(armed){ arm(15000); mode("listening"); }             // he started talking: don't let the window close on him
       }
     } else {
       seg.chunks.push(new Float32Array(x)); seg.ms += ms;
+      if(seg.live && !livePush(x, rate)) seg.live = false;
       if(speaking) seg.overHer = true;
       if(loud){ quiet = 0; seg.speech += ms; } else quiet += ms;
-      if(quiet >= 650 || seg.ms >= (seg.overHer ? 5000 : 14000)){
+      if(quiet >= (seg.live ? 500 : 650) || seg.ms >= (seg.overHer ? 5000 : 14000)){
         const done = seg; seg = null; voiced = 0;
-        if(done.speech >= 250) sendSeg(done, rate);
+        if(done.speech >= 250){ if(EARS === "live") liveEnd(done, rate); else sendSeg(done, rate); }
+        else if(done.live) livePush(new Float32Array(Math.round(rate * 0.1)), rate, true), live.queue.push({ seg:{ overHer:true, armed:false }, timer:0 });
       }
     }
   };
@@ -546,7 +607,7 @@ async function pollUpdates(){
 function showHud(){
   setInterval(pollUpdates, 20000);
   $("setup").classList.add("hidden");
-  if(EARS === "server") startEars(); else { recog = buildRecog(); ensureRecog(); }
+  if(EARS === "live" || EARS === "server"){ if(EARS === "live") liveOpen(); startEars(); } else { recog = buildRecog(); ensureRecog(); }
   setStatus("מקשיבה…");
   // No spoken greeting: she waits silently for her name. Unlock audio now (inside the tap).
   try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); }catch(e){}
