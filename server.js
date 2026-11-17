@@ -164,6 +164,14 @@ app.post('/tts', async (req, res) => {
   } catch (e) { res.status(502).json({ error: 'tts' }); }
 });
 
+// ---------- owner-only: read the recent conversation (for checking what she heard and said) ----------
+app.get('/conversation', (req, res) => {
+  if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
+  const list = (get('conversation') || []).slice(-30).map(m => ({ role: m.role,
+    text: typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.filter(b => b && b.type === 'text').map(b => b.text).join(' ') : '') }));
+  res.json({ items: list });
+});
+
 // ---------- TABLET EARS: speech-to-text for the tablet page (see ears.js) ----------
 mountEars(app, authOk);
 
