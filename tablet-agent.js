@@ -71,7 +71,7 @@ const MEMORY_TOOLS = [
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
 const MODELS = ['claude-sonnet-5-5', 'claude-haiku-5-5'];   // the stronger model first: measured about as fast for short spoken answers
 // Live knowledge of the world: Anthropic runs the search on its side and hands her the results.
-const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3, user_location: { type: 'approximate', country: 'IL', timezone: 'Asia/Jerusalem' } };
+const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
 
 // Calendar + mail context, kept warm for the tablet: answer immediately from the last copy and
 // refresh it in the background, instead of making him wait on Google before every answer.
