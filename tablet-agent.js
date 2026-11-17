@@ -158,7 +158,8 @@ export async function streamOnce(messages, system, tools, onText, models = MODEL
   let lastErr = '';
   for (const model of models) {
     const body = { model, max_tokens: maxTokens, system, messages, stream: true };
-    if (tools && tools.length) body.tools = tools;
+    // The tool list is long and identical from call to call: mark it cacheable so replies start sooner.
+    if (tools && tools.length) body.tools = tools.map((t, i) => (i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t));
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -267,7 +268,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : [])];
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
   const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
-  sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
+  sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. אל תחפשי באינטרנט את השעה, התאריך, היומן, המייל, הוואטסאפ או מזג האוויר: אלה נמצאים אצלך בנתונים שלמעלה ובכלים הייעודיים, והשעון שלמעלה מדויק. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
 
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
