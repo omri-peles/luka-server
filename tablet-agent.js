@@ -17,6 +17,7 @@ import { macCanReadFiles, findOnMac, readOnMac, macV3, macV4, screenOnMac, write
 import { shopifySetPrice } from './shopify.js';
 import { mailOn, sendEmail } from './mail.js';
 import { newTurn } from './gate.js';
+import { weatherCard } from './weather-card.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -308,7 +309,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
     ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...(macV4() ? MAC4_TOOLS : []), ...BRIEF_TOOLS,
     ...(opts.control ? SCREEN_TOOLS : [])].filter(t => opts.control || t.name !== 'look_through_camera');
-  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר. למזג אוויר הכרטיס מוצג לבד כשאת קוראת ל-get_weather, אז אל תציגי לו כרטיס נוסף."; }
+  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר. למזג אוויר מוצג לבד חלון גרפי כשאת קוראת ל-get_weather, אז אל תציגי לו כרטיס נוסף. בכרטיסים אחרים כתבי רק שורות קצרות של נתונים ומספרים, בלי משפטים."; }
   if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
   if (opts.channel === 'whatsapp') sys += "\n\nזו התכתבות בוואטסאפ עם אדוני, לא שיחה קולית. הוא לא מול המסך של לוקה. כתבי תשובה עניינית, אפשר כמה שורות, ומותר לצרף קישורים. אל תכתבי 'בודקת, אדוני' לפני חיפוש. תוצאות של משימות רקע יישלחו אליו בהודעה נפרדת כשיהיו מוכנות.";
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
@@ -386,7 +387,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : await (async () => {
                 const res = await runTool(b.name, inp);
                 if (b.name === 'get_weather' && opts.control && typeof res === 'string' && res.length > 10)
-                  opts.control({ card: { title: 'מזג אוויר', rows: [], note: res.slice(0, 260) } });
+                  weatherCard(inp.city).then(c => { if (c) { try { opts.control({ card: c }); } catch (e) {} } }).catch(() => {});
                 return res;
               })();
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
