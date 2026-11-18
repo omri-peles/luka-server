@@ -7,6 +7,7 @@ import express from 'express';
 const KEY = () => process.env.ELEVENLABS_API_KEY || '';
 const DAILY_MIN = () => Number(process.env.STT_DAILY_MIN || 240);     // safety cap: minutes of audio per day
 let day = '', usedSec = 0, tokens = 0, useKeyterms = true;
+const heard = [];
 
 async function transcribe(buf, type) {
   const call = async (withTerms) => {
@@ -56,8 +57,16 @@ export function mountEars(app, authOk) {
       res.json({ token: (await r.json()).token });
     } catch (e) { res.status(502).json({ error: 'token' }); }
   });
+  // What the tablet page heard lately (kept in memory only, last 40), to diagnose listening problems.
+  app.post('/ears/heard', express.json(), (req, res) => {
+    if (!authOk(req)) return res.status(401).end();
+    const b = req.body || {};
+    heard.push({ at: new Date().toISOString().slice(11, 19), t: String(b.t || '').slice(0, 140), mode: String(b.mode || ''), hit: !!b.hit, armed: !!b.armed, over: !!b.over });
+    if (heard.length > 40) heard.shift();
+    res.json({ ok: true });
+  });
   app.get('/stt/usage', (req, res) => {
     if (!authOk(req)) return res.status(401).json({ error: 'bad token' });
-    res.json({ day, minutesToday: Math.round(usedSec / 6) / 10, capMinutes: DAILY_MIN(), keyterms: useKeyterms, liveTokens: tokens });
+    res.json({ day, minutesToday: Math.round(usedSec / 6) / 10, capMinutes: DAILY_MIN(), keyterms: useKeyterms, liveTokens: tokens, heard });
   });
 }

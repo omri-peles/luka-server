@@ -154,6 +154,8 @@ app.post('/chat', async (req, res) => {
 
 // ---------- TABLET PAGE served from this server (no keys needed in the browser) ----------
 app.get('/luka', (_req, res) => res.sendFile(path.resolve('./hud.html')));
+// Lets an open tablet page notice that a newer version of itself was published.
+app.get('/luka/version', (_req, res) => { try { res.json({ v: crypto.createHash('sha1').update(fs.readFileSync(path.resolve('./hud.html'))).digest('hex').slice(0, 12) }); } catch (e) { res.json({ v: '' }); } });
 // Voice for the tablet page: same voice.js as everywhere, key stays on the server.
 app.post('/tts', async (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: 'bad token' });

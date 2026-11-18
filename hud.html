@@ -144,6 +144,7 @@
       <div class="core" id="core"></div>
     </div>
     <div id="status">—</div>
+    <div id="heard" style="min-height:1.2em;margin-top:6px;font-size:.8rem;opacity:.5;color:var(--ink)"></div>
     <div id="reply"></div>
     <div id="said"></div>
     <button class="mic-btn" id="askBtn">🎙️ דברי אליי</button>
@@ -158,7 +159,7 @@ const BRAIN_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"];
 // Matched as a whole word, in ANY of the recognizer's alternative guesses.
 const WAKE = /(?:^|[\s,.!?־-])(?:(?:היי|הי|הלו|אהלן)\s+)?(?:לוקה|לוקא|לוקאה|לוכה|לוקע|לוקאס|לוקס|luka|luca|lucas|looka)(?=$|[\s,.!?:־-])/i;
 function afterWake(t){ const m = WAKE.exec(t); return m ? t.slice(m.index + m[0].length).replace(/^[\s,.!?:־-]+/, "").trim() : null; }
-function arm(ms){ armed = true; clearTimeout(armTimer); armTimer = setTimeout(disarm, ms || 9000); }
+function arm(ms){ armed = true; clearTimeout(armTimer); armTimer = setTimeout(disarm, ms || 9000); try{ if($("status").textContent === IDLE) $("status").textContent = "מקשיבה…"; }catch(e){} }
 function disarm(){ armed = false; clearTimeout(armTimer); if(!speaking && body.className !== "thinking"){ mode(""); setStatus("מקשיבה…"); } }
 const PERSONA =
   "את לוּקה, עוזרת אישית בהשראת ה-JARVIS של טוני סטארק. מנומסת, רהוטה, רגועה וקרת רוח. " +
@@ -202,7 +203,15 @@ function stopSpeaking(tail){
   stopViz(); speaking = false; spokeUntil = Date.now() + (tail || 6000);
 }
 
-function setStatus(t){ $("status").textContent = t; }
+const IDLE = 'אמור "לוקה"';
+function setStatus(t){ $("status").textContent = (t === "מקשיבה…" && !armed) ? IDLE : t; }
+// What she heard, shown small for a few seconds (his words only, never hers).
+let heardTimer = 0;
+function showHeard(text, mode_, hit, over){
+  try{ const el = $("heard"); el.textContent = text ? "שמעתי: " + text.slice(0, 90) : ""; clearTimeout(heardTimer); heardTimer = setTimeout(()=>{ el.textContent = ""; }, 5000); }catch(e){}
+  try{ fetch(SERVER + "/ears/heard", { method:"POST", headers:{ "content-type":"application/json", "x-luka-token": localStorage.getItem("luka_token") || "" },
+        body: JSON.stringify({ t: (text || "").slice(0, 140), mode: mode_, hit: !!hit, armed: !!armed, over: !!over }) }).catch(()=>{}); }catch(e){}
+}
 function mode(m){ body.className = m || ""; }
 
 // ---------- Brain (Claude, direct) ----------
@@ -525,6 +534,7 @@ function wavFrom(chunks, rate){
 function heardText(text, seg){
   text = (text || "").trim(); if(!text) return;
   const hit = WAKE.test(text);
+  showHeard(text, EARS, hit, seg.overHer || speaking);
   if(seg.overHer || speaking){                                 // said while she was talking: only her name counts
     if(!hit || spoken.has("לוקה")) return;
     if(speaking) stopSpeaking(1);
@@ -581,6 +591,7 @@ async function liveOpen(){
       live.last = t + (m.error ? ": " + m.error : "");
     };
     ws.onclose = ()=>{ live.ready = false; if(live.ws === ws) live.ws = null; if(!started) live.fails++;
+      for(const w of live.queue.splice(0)){ clearTimeout(w.timer); if(!w.done){ w.done = true; sendSeg(w.seg, audioCtx ? audioCtx.sampleRate : 48000); } }
       setTimeout(liveOpen, Math.min(60000, 1500 * Math.pow(2, Math.min(live.fails, 5)))); };
   }catch(e){ live.fails++; } finally{ live.opening = false; }
 }
@@ -594,14 +605,17 @@ function livePartial(text){
   if(speaking){ if(spoken.has("לוקה")) return; stopSpeaking(1); }
   if(!armed){ arm(9000); mode("listening"); setStatus("כן אדוני?"); }
 }
-function liveFinal(text){
+function liveFinal(text){                                          // one final text per finished sentence, in order
   const w = live.queue.shift(); if(!w) return;
-  clearTimeout(w.timer); heardText(text, w.seg);
+  clearTimeout(w.timer);
+  if(w.done) return;                                               // it already went the slower way
+  w.done = true; heardText(text, w.seg);
 }
 function liveEnd(seg, rate){                                       // end of his sentence: ask for the final text
   const ok = seg.live && livePush(new Float32Array(Math.round(rate * 0.1)), rate, true);
   if(!ok){ sendSeg(seg, rate); return; }
-  const w = { seg, timer: setTimeout(()=>{ const i = live.queue.indexOf(w); if(i >= 0) live.queue.splice(i, 1); sendSeg(seg, rate); }, 2500) };
+  const w = { seg, done:false, timer:0 };
+  w.timer = setTimeout(()=>{ if(!w.done){ w.done = true; sendSeg(seg, rate); } }, 2500);   // keeps its place in line, so a late text is not given to the next sentence
   live.queue.push(w);
 }
 async function startEars(){
@@ -637,7 +651,7 @@ async function startEars(){
       if(quiet >= (seg.live ? 500 : 650) || seg.ms >= (seg.overHer ? 5000 : 14000)){
         const done = seg; seg = null; voiced = 0;
         if(done.speech >= 250){ if(EARS === "live") liveEnd(done, rate); else sendSeg(done, rate); }
-        else if(done.live) livePush(new Float32Array(Math.round(rate * 0.1)), rate, true), live.queue.push({ seg:{ overHer:true, armed:false }, timer:0 });
+
       }
     }
   };
@@ -664,7 +678,16 @@ async function pollUpdates(){
     if(text) await speak(text);
   }catch(e){}
 }
+let myVersion = "", toldUpdate = false;
+async function checkVersion(){
+  try{
+    const j = await (await fetch(SERVER + "/luka/version?x=" + Date.now())).json();
+    if(!myVersion){ myVersion = j.v || ""; return; }
+    if(j.v && j.v !== myVersion && !toldUpdate){ toldUpdate = true; showCard({ title:"יש עדכון ללוקה", rows:[], note:"רענן את הדף כדי לקבל את הגרסה החדשה." }); }
+  }catch(e){}
+}
 function showHud(){
+  checkVersion(); setInterval(checkVersion, 120000);
   setInterval(pollUpdates, 20000);
   $("setup").classList.add("hidden");
   if(EARS === "live" || EARS === "server"){ if(EARS === "live") liveOpen(); startEars(); } else { recog = buildRecog(); ensureRecog(); }
