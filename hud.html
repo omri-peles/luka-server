@@ -151,10 +151,10 @@
   @keyframes pulse{ 50%{ transform:scale(1.7); opacity:.5; } }
   .fx-day{ display:flex; align-items:baseline; gap:8px; margin:10px 0 2px; color:var(--cyan); font-size:.85rem; }
   .fx-day b{ font-size:1.5rem; font-weight:300; color:#eafcff; }
-  .tl{ position:relative; padding-inline-start:16px; }
-  .tl::before{ content:""; position:absolute; inset-inline-start:4px; top:6px; bottom:6px; width:1px; background:linear-gradient(var(--cyan),transparent); opacity:.5; }
-  .tl .fx-row{ border-top:0; padding:5px 0; position:relative; }
-  .tl .fx-row .dot{ position:absolute; inset-inline-start:-16px; }
+  .tline{ position:relative; padding-inline-start:16px; }
+  .tline::before{ content:""; position:absolute; inset-inline-start:4px; top:6px; bottom:6px; width:1px; background:linear-gradient(var(--cyan),transparent); opacity:.5; }
+  .tline .fx-row{ border-top:0; padding:5px 0; position:relative; }
+  .tline .fx-row .dot{ position:absolute; inset-inline-start:-16px; }
   .bars{ display:flex; align-items:flex-end; gap:4px; height:46px; margin:4px 0 10px; direction:ltr; }
   .bars i{ flex:1; min-height:2px; border-radius:2px 2px 0 0; background:linear-gradient(var(--cyan),rgba(79,227,242,.15)); transform-origin:bottom; animation:grow .7s cubic-bezier(.2,.8,.2,1) both; }
   @keyframes grow{ from{ transform:scaleY(0); } }
@@ -163,7 +163,7 @@
   .stock{ width:54px; height:5px; border-radius:5px; background:rgba(255,255,255,.1); flex:0 0 auto; overflow:hidden; direction:ltr; }
   .stock i{ display:block; height:100%; background:var(--cyan); }
   .thumb{ width:34px; height:34px; border-radius:8px; object-fit:cover; flex:0 0 auto; margin:0 !important; }
-  .ring{ } .cd{ width:30px; height:30px; flex:0 0 auto; }
+  .cd{ width:30px; height:30px; flex:0 0 auto; }
   .pic{ padding:8px; } .pic img{ margin:0; border-radius:10px; }
   .upd{ width:54px; height:54px; padding:0; border-radius:50%; align-self:flex-start; display:grid; place-items:center; }
   .upd svg{ width:28px; height:28px; animation:spin 3s linear infinite; }
@@ -490,7 +490,7 @@ function graphicCard(c){
     const el = frame("calendar", "", c.now);
     for(const d of (c.days || [])){
       const dh = E("div", "fx-day"); dh.appendChild(E("b", "", d.dom)); dh.appendChild(E("span", "", d.wd)); el.appendChild(dh);
-      const tl = E("div", "tl");
+      const tl = E("div", "tline");
       for(const it of (d.items || [])){ const r = E("div", "fx-row" + (it.past ? " past" : "")); r.appendChild(E("span", "dot" + (it.live ? " live" : it.past ? "" : " ok")));
         r.appendChild(E("span", "num", it.t || "●")); r.appendChild(E("span", "grow", it.title)); if(it.e) r.appendChild(E("span", "dim", it.e)); tl.appendChild(r); }
       if(!(d.items || []).length){ const r = E("div", "fx-row past"); r.appendChild(E("span", "dot")); r.appendChild(E("span", "num", "—")); tl.appendChild(r); }
