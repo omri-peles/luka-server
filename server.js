@@ -154,6 +154,12 @@ app.post('/chat', async (req, res) => {
 
 // ---------- TABLET PAGE served from this server (no keys needed in the browser) ----------
 app.get('/luka', (_req, res) => res.sendFile(path.resolve('./hud.html')));
+// Luka as an installable app (computer and tablet): the manifest and the icon. Tablet side only.
+app.get('/luka/app.webmanifest', (_req, res) => res.type('application/manifest+json').send(JSON.stringify({
+  id: '/luka', name: 'לוקה', short_name: 'לוקה', lang: 'he', dir: 'rtl', start_url: '/luka', scope: '/luka',
+  display: 'fullscreen', display_override: ['fullscreen', 'standalone'], background_color: '#05090f', theme_color: '#05090f',
+  icons: [192, 512].flatMap(n => ['any', 'maskable'].map(p => ({ src: '/luka/icon-' + n + '.png', sizes: n + 'x' + n, type: 'image/png', purpose: p }))) })));
+for (const n of ['192', '512']) app.get('/luka/icon-' + n + '.png', (_req, res) => res.type('image/png').sendFile(path.resolve('./luka-icon-' + n + '.png')));
 // Lets an open tablet page notice that a newer version of itself was published.
 app.get('/luka/version', (_req, res) => { try { res.json({ v: crypto.createHash('sha1').update(fs.readFileSync(path.resolve('./hud.html'))).digest('hex').slice(0, 12) }); } catch (e) { res.json({ v: '' }); } });
 // Voice for the tablet page: same voice.js as everywhere, key stays on the server.

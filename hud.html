@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>לוקה</title>
+<link rel="manifest" href="/luka/app.webmanifest">
+<meta name="theme-color" content="#05090f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="/luka/icon-192.png">
+<link rel="apple-touch-icon" href="/luka/icon-192.png">
 <style>
   :root{ --cyan:#4fe3f2; --cyan-dim:rgba(79,227,242,.5); --cyan-faint:rgba(79,227,242,.14); --ink:#9fe7f4; }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -862,7 +869,7 @@ $("askBtn").addEventListener("click", ()=>{
   stopRecog(); setTimeout(ensureRecog,200);
 });
 
-try{ document.querySelector(".reactor").addEventListener("click", ()=> $("askBtn").click()); }catch(e){}
+try{ document.querySelector(".reactor").addEventListener("click", ()=>{ fullScreen(); $("askBtn").click(); }); }catch(e){}
 
 // ---------- Startup ----------
 async function pollUpdates(){
@@ -894,7 +901,16 @@ function showHud(){
   try{ audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); }catch(e){}
 }
 let pairing = false;
+// The app fills the whole screen and keeps it awake. Both need a touch from him, so they ride on the start tap and on a tap on the ring.
+let wake = null;
+function fullScreen(){
+  try{ const d = document.documentElement; if(!document.fullscreenElement && d.requestFullscreen) d.requestFullscreen({ navigationUI:"hide" }).catch(()=>{}); }catch(e){}
+  try{ if(navigator.wakeLock && !wake) navigator.wakeLock.request("screen").then(w=>{ wake = w; w.addEventListener("release", ()=>{ wake = null; }); }).catch(()=>{}); }catch(e){}
+}
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState === "visible" && started0) { try{ if(navigator.wakeLock && !wake) navigator.wakeLock.request("screen").then(w=>{ wake = w; w.addEventListener("release", ()=>{ wake = null; }); }).catch(()=>{}); }catch(e){} } });
+let started0 = false;
 async function begin(){
+  started0 = true; fullScreen();
   const xk = ($("xiKey").value.trim()) || xiKey;
   const bk = ($("brainKey").value.trim()) || brainKey;
   xiKey=xk; brainKey=bk;
