@@ -296,7 +296,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
 
   let full = '';
   const splitter = makeSentenceSplitter(onSentence);
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {                    // room for several tool steps in one request
     // Words heard without her name need better judgement (is this even meant for her?), so those
     // turns use the stronger model; turns that start with her name keep the fast one.
     let r;
