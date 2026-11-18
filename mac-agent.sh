@@ -146,8 +146,13 @@ type_text() {  # pastes the text into whatever window is in front (keeps Hebrew 
   local t; t="$(b64 "$1")"; [ -z "$t" ] && { echo "לא בוצע: אין טקסט."; return; }
   local old; old="$(/usr/bin/pbpaste 2>/dev/null)"
   printf '%s' "$t" | /usr/bin/pbcopy
+  sleep 0.3
+  # the app reads the clipboard a moment after the key press: confirm our text is still there, paste, and only
+  # put the old clipboard back well after the paste has landed
+  [ "$(/usr/bin/pbpaste 2>/dev/null)" = "$t" ] || { printf '%s' "$t" | /usr/bin/pbcopy; sleep 0.3; }
   if /usr/bin/osascript -e 'tell application "System Events" to keystroke "v" using command down' >/dev/null 2>&1; then
-    sleep 0.4; printf '%s' "$old" | /usr/bin/pbcopy; echo "הטקסט הוקלד בחלון הפעיל."
+    sleep 2; printf '%s' "$old" | /usr/bin/pbcopy
+    echo "הטקסט הוקלד באפליקציה שבחזית: $(/usr/bin/osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null)."
   else printf '%s' "$old" | /usr/bin/pbcopy; echo "$NEED_AX"; fi
 }
 press_keys() {  # e.g. enter, tab, cmd+w, cmd+shift+t, ctrl+cmd+f
