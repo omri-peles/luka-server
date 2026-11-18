@@ -433,7 +433,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'delegate_to_agents' ? (m => { if (m.card && opts.control) { try { opts.control({ card: m.card }); } catch (e) {} } return m.text; })(startMission(agentRun, announce, inp.slug, inp.title, inp.goal, inp.assignments))
             : b.name === 'ask_agent' ? await askAgent(agentRun, inp.agent, inp.task)
             : b.name === 'action_log' ? actionLog(inp.hours)
-            : b.name === 'emergency_stop' ? (halt(), clearPending(), flushMac(), 'נעצר: כל עבודת רקע של הצוות בוטלה, התור למחשב נוקה והאישורים הממתינים בוטלו. מחקר בודד או בניית אתר שכבר רצים יסתיימו בלי להכריז.')
+            : b.name === 'emergency_stop' ? (halt(), clearPending(), flushMac(), 'נעצר: כל עבודת רקע של הצוות בוטלה, התור למחשב נוקה והאישורים הממתינים בוטלו. שימי לב ואמרי לו: מחקר בודד, בניית אתר או יצירת תמונה שכבר התחילו לא נעצרים וימשיכו עד הסוף.')
             : b.name === 'computer_status' ? await statsOnMac()
             : b.name === 'type_on_computer' ? await typeOnMac(inp.text)
             : b.name === 'press_keys_on_computer' ? await keysOnMac(inp.keys)
