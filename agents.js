@@ -3,6 +3,7 @@
 // work, a reviewer checks it, and one merged result comes back. Nothing here sends, buys, deletes or changes
 // anything: actions stay with Luka and her spoken-approval gate.
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import { load } from './store.js';
 import { publishPage, siteUrl, pageExists } from './sites.js';
@@ -126,7 +127,7 @@ const clean = (f) => f.replace(/<\s*(script|style|iframe|object|embed|form|link|
   .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '').replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
 function page(title, fragment, who) {
   const when = new Date().toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'long', timeStyle: 'short' });
-  return `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>${esc(title)}</title><link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;600;800&display=swap" rel="stylesheet">
 <style>body{margin:0;background:#0b0f14;color:#e8edf3;font-family:Heebo,system-ui,sans-serif;line-height:1.75}
 main{max-width:860px;margin:0 auto;padding:48px 22px 80px}h1{font-size:2rem;margin:0 0 6px;font-weight:800}
@@ -143,7 +144,9 @@ export function startMission(run, announce, slug, title, goal, assignments) {
   if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug)) return { text: 'לא התחלתי: slug צריך להיות באנגלית קטנה, ספרות ומקפים בלבד.' };
   if (!title || jobs.length < 2) return { text: 'לא התחלתי: צריך כותרת ולפחות שתי סוכנות מהרשימה (' + AGENT_IDS.join(', ') + ') עם משימה ברורה לכל אחת.' };
   if (busy >= 1) return { text: 'לא התחלתי: צוות אחד כבר עובד כרגע. אפשר לבקש שוב כשהוא יסיים.' };
-  while (pageExists(slug)) slug = slug.slice(0, 34) + '-' + Math.random().toString(36).slice(2, 5);
+  // these reports can hold private data (mail, calendar, shop), and report pages open for anyone who has the address:
+  // so the address always ends with a long random part that cannot be guessed.
+  slug = slug.slice(0, 24).replace(/-+$/, '') + '-' + crypto.randomBytes(7).toString('hex');
   busy++; const started = Date.now();
   const names = jobs.map(j => AGENTS[j.id].name);
   (async () => {
