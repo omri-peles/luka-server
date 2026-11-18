@@ -156,7 +156,7 @@ const MODELS = ['claude-sonnet-5-5', 'claude-haiku-5-5'];   // the stronger mode
 const WEB_TOOL = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
 // Two more abilities that run on Anthropic's side: reading a whole web page, and running code in a closed sandbox
 // (calculations, data, charts). Nothing runs on this server or on his computer.
-const FETCH_TOOL = { type: 'web_fetch_20260318', name: 'web_fetch', max_uses: 3, max_content_tokens: 12000 };
+const FETCH_TOOL = { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 3, max_content_tokens: 12000 };
 const CODE_TOOL = { type: 'code_execution_20250825', name: 'code_execution' };
 let extrasOk = true, extrasErr = '';
 const SKILL_TOOLS = [
