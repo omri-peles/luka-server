@@ -16,11 +16,13 @@ async function token() {
   tok = { value: j.access_token, exp: Date.now() + Math.max(60, (j.expires_in || 3600) - 300) * 1000 };
   return tok.value;
 }
-async function gql(query, variables) {
+async function gql(query, variables, retried = false) {
   const r = await fetch(`https://${STORE()}.myshopify.com/admin/api/${VER()}/graphql.json`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'X-Shopify-Access-Token': await token() },
     body: JSON.stringify({ query, variables }) });
   const j = await r.json().catch(() => ({}));
+  // A token issued before a permission was added does not carry it: get a fresh one and try once more.
+  if (!retried && (r.status === 401 || r.status === 403 || /ACCESS_DENIED|access denied/i.test(JSON.stringify(j.errors || '')))) { tok = { value: '', exp: 0 }; return gql(query, variables, true); }
   if (!r.ok || j.errors) throw new Error('שגיאה מהחנות: ' + JSON.stringify(j.errors || r.status).slice(0, 300));
   return j.data;
 }
