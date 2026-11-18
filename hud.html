@@ -172,6 +172,21 @@
   .thumb{ width:34px; height:34px; border-radius:8px; object-fit:cover; flex:0 0 auto; margin:0 !important; }
   .cd{ width:30px; height:30px; flex:0 0 auto; }
   .pic{ padding:8px; } .pic img{ margin:0; border-radius:10px; }
+  /* ---------- her face inside the core: two eyes that blink and a mouth that follows her voice ---------- */
+  #face{ position:absolute; inset:0; width:100%; height:100%; z-index:2; opacity:.0; transition:opacity .4s; pointer-events:none; }
+  body.face #face{ opacity:.82; }
+  #face .eye, #face #mouth{ fill:#06323c; }
+  #face .eye{ transform-box:fill-box; transform-origin:center; animation:blink 5.2s infinite; }
+  #eyes{ transition:transform .35s ease; }
+  body.thinking #eyes{ transform:translate(0,-5px); }
+  body.listening #face .eye{ animation:blink 5.2s infinite, wide .4s forwards; }
+  @keyframes blink{ 0%,94%,100%{ transform:scaleY(1); } 96.5%{ transform:scaleY(.08); } }
+  @keyframes wide{ to{ height:19px; } }
+  .graph svg{ width:100%; height:auto; display:block; }
+  .graph text{ font-size:9px; fill:#e6f7fb; font-family:inherit; }
+  .graph .rel{ font-size:6.5px; fill:var(--ink); opacity:.7; }
+  .graph line{ stroke:var(--cyan); stroke-width:.8; opacity:.5; stroke-dasharray:3 3; animation:dash 2.4s linear infinite; }
+  @keyframes dash{ to{ stroke-dashoffset:-12; } }
   .upd{ width:54px; height:54px; padding:0; border-radius:50%; align-self:flex-start; display:grid; place-items:center; }
   .upd svg{ width:28px; height:28px; animation:spin 3s linear infinite; }
   .hidden{ display:none !important; }
@@ -221,7 +236,9 @@
         <circle id="level" cx="150" cy="150" r="72"
           fill="none" stroke-dasharray="452" stroke-dashoffset="452"></circle>
       </svg>
-      <div class="core" id="core"></div>
+      <div class="core" id="core"><svg id="face" viewBox="0 0 118 118" aria-hidden="true">
+        <g id="eyes"><rect class="eye" x="35" y="44" width="11" height="17" rx="5.5"/><rect class="eye" x="72" y="44" width="11" height="17" rx="5.5"/></g>
+        <ellipse id="mouth" cx="59" cy="80" rx="13" ry="1.6"/></svg></div>
     </div>
     <div id="status">—</div>
     <div id="heard" style="min-height:1.2em;margin-top:6px;font-size:.8rem;opacity:.5;color:var(--ink)"></div>
@@ -343,12 +360,15 @@ function startViz(srcNode){
       const amp = Math.min(1, (sum/data.length)/90);           // 0..1
       LVL.setAttribute("stroke-dashoffset", String(LVL_LEN*(1-amp)));
       CORE.style.transform = "scale(" + (0.92 + amp*0.35) + ")";
+      if(MOUTH) MOUTH.setAttribute("ry", String(1.6 + amp * 9));
       levelRAF = requestAnimationFrame(loop);
     };
     loop();
   }catch(e){}
 }
-function stopViz(){ cancelAnimationFrame(levelRAF); LVL.setAttribute("stroke-dashoffset", String(LVL_LEN)); CORE.style.transform=""; }
+const MOUTH = document.getElementById("mouth");
+function setFace(on){ try{ localStorage.setItem("luka_face", on ? "1" : "0"); }catch(e){} document.body.classList.toggle("face", !!on); }
+function stopViz(){ if(MOUTH) MOUTH.setAttribute("ry", "1.6"); cancelAnimationFrame(levelRAF); LVL.setAttribute("stroke-dashoffset", String(LVL_LEN)); CORE.style.transform=""; }
 
 async function speak(text){
   const my = turn;
@@ -537,6 +557,17 @@ function graphicCard(c){
     for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot live")); const two = E("div", "two"); two.appendChild(E("div", "", it.name)); if(it.task) two.appendChild(E("div", "", it.task)); r.appendChild(two); el.appendChild(r); }
     return el;
   }
+  if(c.kind === "graph"){
+    const el = E("div", "card fx graph"); el.appendChild(E("div", "scan")); el.onclick = ()=> closeCard(el);
+    const s = document.createElementNS(SVGNS, "svg"); s.setAttribute("viewBox", "0 0 300 250");
+    const mk = (tag, a, txt) => { const e = document.createElementNS(SVGNS, tag); for(const k in a) e.setAttribute(k, a[k]); if(txt != null) e.textContent = txt; s.appendChild(e); return e; };
+    const nodes = (c.nodes || []).slice(0, 9), cx = 150, cy = 125, COL = { person:"#5dffb0", project:"#4fe3f2", decision:"#ffd36b", place:"#ff9f6b", date:"#c9a0ff", other:"#9fe7f4" };
+    nodes.forEach((n, i) => { const a = -Math.PI / 2 + i * 2 * Math.PI / nodes.length, x = cx + Math.cos(a) * 108, y = cy + Math.sin(a) * 88;
+      mk("line", { x1: cx, y1: cy, x2: x, y2: y }); mk("circle", { cx: x, cy: y, r: 5, fill: COL[n.type] || COL.other });
+      mk("text", { x, y: y + (y < cy ? -9 : 16), "text-anchor": "middle" }, n.name); if(n.rel) mk("text", { x, y: y + (y < cy ? -19 : 25), "text-anchor": "middle", class: "rel" }, n.rel.slice(0, 30)); });
+    mk("circle", { cx, cy, r: 20, fill: "rgba(79,227,242,.18)", stroke: "#4fe3f2", "stroke-width": 1.4 }); mk("text", { x: cx, y: cy + 3, "text-anchor": "middle", style: "font-size:10px;font-weight:600" }, c.center || "");
+    el.appendChild(s); return el;
+  }
   if(c.kind === "reminders"){
     const el = frame("clock", String(c.count != null ? c.count : items.length));
     for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot " + (it.mins <= 15 ? "live" : "ok"))); r.appendChild(E("span", "num", it.t)); if(it.wd) r.appendChild(E("span", "dim", it.wd));
@@ -623,6 +654,7 @@ async function handleStream(text, my, followup){
         if(o.need === "camera") sendFrame(o.id);
         if(o.card) showCard(o.card);
         if(o.cards === "clear") clearCards();
+        if(typeof o.face === "boolean") setFace(o.face);
       }
     }
     await chain;
@@ -880,6 +912,8 @@ $("askBtn").addEventListener("click", ()=>{
 });
 
 try{ document.querySelector(".reactor").addEventListener("click", ()=>{ fullScreen(); $("askBtn").click(); }); }catch(e){}
+
+try{ setFace(localStorage.getItem("luka_face") !== "0"); }catch(e){}
 
 // ---------- Startup ----------
 async function pollUpdates(){

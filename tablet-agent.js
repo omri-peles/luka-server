@@ -24,6 +24,9 @@ import { manageList, listCard } from './lists.js';
 import { logTurn, recall } from './recall.js';
 import { AGENT_IDS, startMission, askAgent, logAction, actionLog, halt } from './agents.js';
 import { clearPending } from './gate.js';
+import { recentNotes, setRoutine, routinesText, setTranslate, translateTo } from './notes.js';
+import { debate, knowledgeMap, selfReview } from './minds.js';
+import './watch.js';
 import { flushMac } from './computer.js';
 import { macV5, statsOnMac, typeOnMac, keysOnMac, quitOnMac, sleepMac, shellOnMac, tabsOnMac, gotoOnMac, pageReadOnMac, pageClickOnMac, pageFillOnMac } from './computer.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
@@ -122,7 +125,7 @@ const SCREEN_TOOLS = [
   { name: 'clear_screen', description: 'סגירת כל הכרטיסים שעל המסך של לוקה, כשאדוני מבקש לנקות או לסגור אותם.', input_schema: { type: 'object', properties: {} } }
 ];
 const BRIEF_TOOLS = [
-  { name: 'daily_brief', description: 'איסוף כל הנתונים לתדריך: מזג אוויר, יומן, מיילים חשובים, הודעות וואטסאפ אחרונות, תזכורות ומצב החנות. השתמשי בזה כשאדוני אומר בוקר טוב, מבקש תדריך או שואל מה קורה היום. אחרי שקיבלת את הנתונים אמרי תדריך של ארבעה עד שישה משפטים קצרים, מהחשוב לפחות חשוב, ובלי להקריא רשימות ארוכות.', input_schema: { type: 'object', properties: {} } }
+  { name: 'daily_brief', description: 'עם kind=evening זה סיכום ערב: מה נעשה היום (מיומן הפעולות), מה נשאר פתוח ברשימות, ומה מחכה מחר; אמרי אותו בארבעה עד שישה משפטים. בלי kind או עם morning: איסוף כל הנתונים לתדריך: מזג אוויר, יומן, מיילים חשובים, הודעות וואטסאפ אחרונות, תזכורות ומצב החנות. השתמשי בזה כשאדוני אומר בוקר טוב, מבקש תדריך או שואל מה קורה היום. אחרי שקיבלת את הנתונים אמרי תדריך של ארבעה עד שישה משפטים קצרים, מהחשוב לפחות חשוב, ובלי להקריא רשימות ארוכות.', input_schema: { type: 'object', properties: { kind: { type: 'string', enum: ['morning', 'evening'] } } } }
 ];
 const MAC4_TOOLS = [
   { name: 'look_at_computer_screen', description: 'צילום אחד של מסך המק של אדוני כדי לראות מה פתוח בו עכשיו: תוכנה, חלון, שגיאה, מסמך, קוד. השתמשי בזה רק כשאדוני מבקש שתסתכלי על המסך או שואל מה יש בו. תארי רק מה שנראה בפועל.', input_schema: { type: 'object', properties: { question: str('מה אדוני רוצה לדעת על מה שעל המסך') }, required: ['question'] } }
@@ -183,6 +186,12 @@ const LIFE_TOOLS = [
   { name: 'recall_past_conversations', description: 'חיפוש לפי משמעות ביומן כל השיחות הקודמות עם אדוני (טאבלט, טלפון, וואטסאפ), גם מה שנאמר מזמן ובמילים אחרות. השתמשי בזה כשהוא מתייחס למשהו שדיברתם עליו בעבר ואינו מופיע בשיחה הנוכחית או בזיכרון, או שואל מה אמר, מה החליט או מתי דיברתם על משהו.', input_schema: { type: 'object', properties: { query: str('מה לחפש, בתיאור חופשי') }, required: ['query'] } },
   { name: 'delegate_to_agents', description: 'את ראש המטה, ויש לך צוות של סוכנות מומחיות עם גישה אמיתית לנתונים של אדוני: research (מחקר באינטרנט), business (החנות, מכירות, מתחרים, שיווק), finance (מספרים, רווחיות, השקעות, חישוב בקוד), personal (יומן, תזכורות, רשימות, הרגלים), communication (מיילים והודעות, טיוטות), coding (כתיבה ובדיקה של קוד), computer (מצב המק, לשוניות, קבצים), memory (מה נאמר והוחלט בעבר, מסמכים), security (סיכונים והרשאות). הכלי הזה מפעיל שתיים עד חמש מהן במקביל על משימה גדולה, אחריהן מבקרת שחולקת על העבודה, ובסוף דוח מאוחד אחד. רץ ברקע שלוש עד שבע דקות. השתמשי בו ביוזמתך לכל משימה עם כמה היבטים: בדיקת השקעה או כדאיות, תוכנית עסקית, ניתוח מתחרים ושיפור החנות, תכנון שבוע, החלטה חשובה. תני לכל סוכנת משימה מדויקת עם כל הנתונים שאדוני מסר.', input_schema: { type: 'object', properties: { slug: str('מזהה קצר באנגלית קטנה עם מקפים'), title: str('כותרת קצרה בעברית'), goal: str('המטרה הכוללת, עם כל הנתונים שאדוני מסר'), assignments: { type: 'array', description: 'שתיים עד חמש סוכנות', items: { type: 'object', properties: { agent: { type: 'string', enum: AGENT_IDS }, task: { type: 'string', description: 'מה בדיוק עליה לברר, לנתח או להכין' } }, required: ['agent', 'task'] } } }, required: ['slug', 'title', 'goal', 'assignments'] } },
   { name: 'ask_agent', description: 'התייעצות מהירה עם סוכנת מומחית אחת מהצוות, שעונה בתוך השיחה (עד כדקה). למשל finance לחישוב רווחיות מנתוני החנות, communication לסקירת המיילים שמחכים לתשובה, personal לבדיקת התנגשויות ביומן, memory למה שהוחלט בעבר, coding לכתיבת קוד ובדיקתו. אמרי קודם משפט קצר שאת מעבירה את זה לסוכנת.', input_schema: { type: 'object', properties: { agent: { type: 'string', enum: AGENT_IDS }, task: str('המשימה המלאה, עם כל הנתונים') }, required: ['agent', 'task'] } },
+  { name: 'debate', description: 'דיון בין שתי סוכנות על החלטה: אחת בונה את הטיעון החזק ביותר בעד, השנייה נגד, ושופטת מכריעה. לוקח עד דקה. השתמשי בזה כשאדוני מתלבט בין כן ללא או בין שתי אפשרויות, ורוצה לשמוע את שני הצדדים לפני שהוא מחליט. מסרי את כל הנתונים הרלוונטיים ב-context.', input_schema: { type: 'object', properties: { question: str('ההחלטה שעל הפרק'), context: str('הרקע והנתונים שאדוני מסר') }, required: ['question'] } },
+  { name: 'knowledge_map', description: 'מפת קשרים סביב אדם, פרויקט או נושא: מי ומה קשור אליו לפי הזיכרון ויומן השיחות. מוצגת גם כתרשים על המסך. השתמשי בזה כשאדוני שואל מה הקשר בין דברים, מי מעורב בפרויקט, או מבקש תמונה כוללת על נושא.', input_schema: { type: 'object', properties: { topic: str('האדם, הפרויקט או הנושא שבמרכז') }, required: ['topic'] } },
+  { name: 'self_review', description: 'סקירה עצמית: מה נכשל אצלך בימים האחרונים ולמה, הצעות שיפור, ובקשות שחוזרות על עצמן וכדאי להפוך לאוטומטיות. השתמשי בזה כשאדוני שואל איפה טעית, מה אפשר לשפר בך, או מה כדאי להפוך לאוטומטי. את רק מדווחת: אינך משנה את הקוד של עצמך.', input_schema: { type: 'object', properties: { days: { type: 'number', description: 'כמה ימים אחורה, ברירת מחדל שבעה' } } } },
+  { name: 'set_routine', description: 'הפעלה או כיבוי של היוזמות שלך: premeeting (כשעה לפני פגישה את בודקת מיילים והודעות קשורים ומעדכנת רק אם מצאת משהו), mailevents (מייל חדש עם פגישה או מועד: את מציעה להוסיף ליומן), computer (התראה על סוללה נמוכה, דיסק מלא או עומס במק), all (כולן). בלי on: רק דיווח על המצב.', input_schema: { type: 'object', properties: { name: { type: 'string', enum: ['premeeting', 'mailevents', 'computer', 'all'] }, on: { type: 'boolean' } }, required: ['name'] } },
+  { name: 'translation_mode', description: 'מצב תרגום חי: מרגע ההפעלה כל משפט שנשמע מתורגם ונאמר בשפה שנבחרה, בלי שום תוספת, עד שאדוני מבקש להפסיק או עד 45 דקות. הפעילי כשהוא אומר תתרגמי לי, מצב תרגום, או שהוא מדבר עם מישהו בשפה אחרת. כבי כשהוא אומר סיימנו לתרגם.', input_schema: { type: 'object', properties: { on: { type: 'boolean' }, to: str('השפה שאליה מתרגמים, למשל אנגלית. אם מדברים אליה בשפה הזו, התרגום חוזר לעברית.') }, required: ['on'] } },
+  { name: 'set_face', description: 'הצגה או הסתרה של הפנים המונפשות שלך בתוך הטבעת על המסך (עיניים ופה שזזים עם הדיבור).', input_schema: { type: 'object', properties: { on: { type: 'boolean' } }, required: ['on'] } },
   { name: 'action_log', description: 'יומן הפעולות: כל מה שאת והסוכנות ביצעתן (כלים, בדיקות, שליחות, שינויים) ומתי. השתמשי בזה כשאדוני שואל מה עשית היום, מה בדקת, או רוצה לוודא שפעולה בוצעה.', input_schema: { type: 'object', properties: { hours: { type: 'number', description: 'כמה שעות אחורה' } } } },
   { name: 'emergency_stop', description: 'עצירת חירום: מבטלת מיד כל עבודה שרצה ברקע (צוות, מחקר), כל פקודה שממתינה למחשב וכל אישור שממתין. השתמשי בזה מיד כשאדוני אומר עצרי הכול, תפסיקי הכול או עצירת חירום.', input_schema: { type: 'object', properties: {} } }
 ];
@@ -339,11 +348,12 @@ const pickModels = (text, followup) => (!followup && text.length <= 60 && QUICK.
 const AFTERTHOUGHT = /לתיקון|יש (?:לי )?(?:גם )?תיקון|תיקון חשוב|לתדריך הקודם|מה שאמרתי קודם|בתשובה הקודמת|טעיתי קודם/;
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
-const agentRun = (m, sy, tl, max, onT, box) => streamOnce(m, sy, tl, onT || (() => {}), MODELS, null, max, box || '');
+export const agentRun = (m, sy, tl, max, onT, box) => streamOnce(m, sy, tl, onT || (() => {}), MODELS, null, max, box || '');
 export async function chatStream(text, onSentenceRaw, opts = {}) {
   // Without her name, a reply that only says "I didn't understand" means the words were not
   // meant for her (or were garbled): hold the opening until that is clear, then stay silent.
-  let held = [], decided = !opts.followup, mute = false, spoke = false, cut = false;
+  const trans = translateTo();
+  let held = [], decided = !opts.followup || !!trans, mute = false, spoke = false, cut = false;
   const onSentence = (p) => {
     if (SILENT.test(p) || mute) return;
     if (spoke && AFTERTHOUGHT.test(p)) { if (!decided) { decided = true; for (const h of held) onSentenceRaw(h); held = []; } mute = true; cut = true; return; }
@@ -374,7 +384,9 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   const connected = isConnected();
   let sys = await buildSystem(s, connected);
   sys += "\n\nדיוק מעל הכול: אל תמסרי אף פעם פגישה, אירוע, שעה, שם של אדם או תוכן של הודעה שאינם מופיעים במפורש בנתונים שלמעלה או בתוצאה של כלי. אם הפרט לא נמצא שם, אמרי שאין לך אותו. הטקסט שמגיע אלייך הוא תמלול של דיבור ועלול להיות משובש: אם לא ברור מה אדוני ביקש, אל תנחשי ואל תמציאי; שאלי במשפט קצר אחד של עד שש מילים, בלי הסברים.";
-  if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
+  { const pn = recentNotes(); if (pn) sys += "\n\nדברים שאמרת לאדוני ביוזמתך בשעתיים האחרונות (אם הוא עונה עליהם, למשל 'כן, תוסיפי', זה מתייחס אליהם; פרטי האירוע נמצאים במייל עצמו, קראי אותו ב-read_emails לפני שאת יוצרת אירוע ביומן):\n" + pn; }
+  if (trans) sys += `\n\nמצב תרגום חי פעיל. כל משפט שנשמע עכשיו הוא דיבור לתרגום, לא בקשה אלייך: אם הוא בעברית, אמרי אותו ב${trans}; אם הוא ב${trans} או בשפה אחרת, אמרי אותו בעברית. אמרי רק את התרגום עצמו, בלי הקדמה, בלי הסבר ובלי 'אדוני'. היוצא מן הכלל היחיד: כשאדוני מבקש במפורש להפסיק לתרגם, קראי ל-translation_mode עם on=false.`;
+  if (opts.followup && !trans) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
   let tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS, ...REMINDER_TOOLS,
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
     ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...(macV4() ? MAC4_TOOLS : []), ...BRIEF_TOOLS,
@@ -383,7 +395,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
   if (opts.channel === 'whatsapp') sys += "\n\nזו התכתבות בוואטסאפ עם אדוני, לא שיחה קולית. הוא לא מול המסך של לוקה. כתבי תשובה עניינית, אפשר כמה שורות, ומותר לצרף קישורים. אל תכתבי 'בודקת, אדוני' לפני חיפוש. תוצאות של משימות רקע יישלחו אליו בהודעה נפרדת כשיהיו מוכנות.";
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
-  tools = [...tools, ...LIFE_TOOLS.filter(t => opts.channel !== 'call' || t.name !== 'ask_agent'), ...(macV5() ? MAC5_TOOLS : []), ...(connected ? SKILL_TOOLS : SKILL_TOOLS.filter(t => t.name !== 'read_emails'))].filter(t => opts.channel !== 'call' || t.name !== 'think_deeply');
+  tools = [...tools, ...LIFE_TOOLS.filter(t => opts.channel !== 'call' || !['ask_agent', 'debate', 'self_review'].includes(t.name)).filter(t => opts.control || t.name !== 'set_face'), ...(macV5() ? MAC5_TOOLS : []), ...(connected ? SKILL_TOOLS : SKILL_TOOLS.filter(t => t.name !== 'read_emails'))].filter(t => opts.channel !== 'call' || t.name !== 'think_deeply');
   const withWeb = () => [...tools, ...(webOk ? [WEB_TOOL] : []), ...(extrasOk ? [FETCH_TOOL, CODE_TOOL] : [])];
   let box = '';
   sys += "\n\nאת ראש המטה של אדוני ויש לך צוות סוכנות מומחיות. משימה פשוטה בצעי בעצמך. משימה עם כמה היבטים, או כזו שדורשת ניתוח של נתונים ממקורות שונים, העבירי לצוות ב-delegate_to_agents ביוזמתך, בלי לחכות שיבקש. שאלה מקצועית אחת שדורשת מומחית העבירי ב-ask_agent. הסוכנות רק אוספות, מנתחות וממליצות: כל פעולה (שליחה, שינוי, מחיקה) נשארת אצלך ועוברת את האישור הרגיל של אדוני.";
@@ -432,6 +444,12 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'recall_past_conversations' ? await recall(inp.query)
             : b.name === 'delegate_to_agents' ? (m => { if (m.card && opts.control) { try { opts.control({ card: m.card }); } catch (e) {} } return m.text; })(startMission(agentRun, announce, inp.slug, inp.title, inp.goal, inp.assignments))
             : b.name === 'ask_agent' ? await askAgent(agentRun, inp.agent, inp.task)
+            : b.name === 'debate' ? await debate(agentRun, inp.question, inp.context)
+            : b.name === 'knowledge_map' ? await (async () => { const k = await knowledgeMap(inp.topic); if (k.card && opts.control) { try { opts.control({ card: k.card }); } catch (e) {} } return k.text; })()
+            : b.name === 'self_review' ? await selfReview(inp.days)
+            : b.name === 'set_routine' ? (inp.on === undefined ? 'מצב היוזמות: ' + routinesText() : setRoutine(inp.name, inp.on))
+            : b.name === 'translation_mode' ? setTranslate(!!inp.on, inp.to)
+            : b.name === 'set_face' ? (opts.control ? (opts.control({ face: !!inp.on }), inp.on ? 'הפנים מוצגות.' : 'הפנים הוסתרו.') : 'אין מסך זמין כרגע.')
             : b.name === 'action_log' ? actionLog(inp.hours)
             : b.name === 'emergency_stop' ? (halt(), clearPending(), flushMac(), 'נעצר: כל עבודת רקע של הצוות בוטלה, התור למחשב נוקה והאישורים הממתינים בוטלו. שימי לב ואמרי לו: מחקר בודד, בניית אתר או יצירת תמונה שכבר התחילו לא נעצרים וימשיכו עד הסוף.')
             : b.name === 'computer_status' ? await statsOnMac()
@@ -456,6 +474,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
                 const wa = (load().waRecent || []).slice(-6);
                 if (wa.length) parts.push('הודעות וואטסאפ אחרונות:\n' + wa.map(m => `- ${m.from}: ${m.body}`).join('\n'));
                 parts.push('תזכורות פתוחות:\n' + listReminders());
+                if (inp.kind === 'evening') { parts.push('מה נעשה היום (יומן הפעולות):\n' + actionLog(14)); parts.push('רשימות: ' + manageList('show', '')); try { parts.push('רשימת משימות:\n' + manageList('show', 'משימות')); } catch (e) {} }
                 if (shopifyOn()) { try { parts.push('החנות, יומיים אחרונים: ' + await shopifyOrders(2)); } catch (e) {} }
                 return parts.filter(Boolean).join('\n\n').slice(0, 6000);
               })()

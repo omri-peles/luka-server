@@ -11,7 +11,7 @@ const hm = (d) => new Intl.DateTimeFormat('he-IL', { timeZone: TZ(), hour: '2-di
 const wd = (d) => new Intl.DateTimeFormat('he-IL', { timeZone: TZ(), weekday: 'short' }).format(d);
 const dom = (d) => new Intl.DateTimeFormat('he-IL', { timeZone: TZ(), day: 'numeric' }).format(d);
 
-function authed() {
+export function authed() {
   const g = get('google');
   if (!g || !g.refresh_token) return null;
   const client = oauthClient();
