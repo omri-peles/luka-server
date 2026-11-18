@@ -267,7 +267,8 @@ click_at() {  # "0.52,0.31" = fractions of the main screen's width and height, a
   local size; size="$(/usr/bin/osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.mainScreen.frame; Math.round(f.size.width) + "," + Math.round(f.size.height)' 2>/dev/null)"
   [[ "$size" =~ ^[0-9]+,[0-9]+$ ]] || { echo "לא בוצע: לא הצלחתי לקרוא את גודל המסך."; return; }
   local x y; x="$(/usr/bin/awk -v a="$fx" -v b="${size%%,*}" 'BEGIN{printf "%d", a*b}')"; y="$(/usr/bin/awk -v a="$fy" -v b="${size##*,}" 'BEGIN{printf "%d", a*b}')"
-  /usr/bin/osascript -e "tell application \"System Events\" to click at {$x, $y}" >/dev/null 2>&1 && echo "נלחץ בנקודה $x,$y במסך." || echo "$NEED_AX"
+  # a real mouse press and release at that point (System Events' own "click at" does not reach most windows)
+  /usr/bin/osascript -l JavaScript -e "ObjC.import('CoreGraphics'); var p = {x: $x, y: $y}; var mv = \$.CGEventCreateMouseEvent(null, \$.kCGEventMouseMoved, p, \$.kCGMouseButtonLeft); var dn = \$.CGEventCreateMouseEvent(null, \$.kCGEventLeftMouseDown, p, \$.kCGMouseButtonLeft); var up = \$.CGEventCreateMouseEvent(null, \$.kCGEventLeftMouseUp, p, \$.kCGMouseButtonLeft); \$.CGEventPost(\$.kCGHIDEventTap, mv); delay(0.15); \$.CGEventPost(\$.kCGHIDEventTap, dn); delay(0.08); \$.CGEventPost(\$.kCGHIDEventTap, up); 'ok'" >/dev/null 2>&1 && echo "נלחץ בנקודה $x,$y במסך (מתוך ${size%%,*} על ${size##*,})." || echo "$NEED_AX"
 }
 allowed_dir() {  # prints the real path of an existing folder inside Desktop / Documents / Downloads, or nothing
   local rel="$1"
