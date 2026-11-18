@@ -470,7 +470,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'run_check' ? await diag(inp.what)
             : b.name === 'set_style' ? setStyle(inp.style)
             : b.name === 'watch_video' ? await watchVideo(inp.url, inp.question)
-            : b.name === 'make_music' ? makeMusic(inp.description, inp.title, inp.seconds, inp.instrumental)
+            : b.name === 'make_music' ? await makeMusic(inp.description, inp.title, inp.seconds, inp.instrumental)
             : b.name === 'click_on_screen' ? await clickOnMac(inp.x, inp.y)
             : b.name === 'make_folder_on_computer' ? await mkdirOnMac(inp.path)
             : b.name === 'move_file_on_computer' ? await moveOnMac(inp.path, inp.to_folder)
