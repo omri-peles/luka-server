@@ -196,3 +196,5 @@ export function pageFillOnMac(field, value) {
   if (/סיסמ|password|אשראי|כרטיס|cvv|cvc|card/i.test(f)) return 'לא בוצע: איני ממלאת סיסמאות או פרטי תשלום. את אלה אדוני ממלא בעצמו.';
   return macV5() ? ask({ type: 'pagefill', what: '-', label: b64({ field: f, value: v }) }) : OLD5;
 }
+
+export function flushMac() { macQueue.length = 0; queue.length = 0; }
