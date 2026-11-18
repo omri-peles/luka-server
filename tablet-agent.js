@@ -8,12 +8,12 @@ import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine }
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
 import { buildSite, editSite, undoSite, sitesText, announce, clearAway } from './sites.js';
 import { startResearch } from './research.js';
-import { askFrame } from './eyes.js';
+import { askFrame, askScreen } from './eyes.js';
 import { setReminder, listReminders, cancelReminder } from './reminders.js';
 import { shopifyOn, shopifyOrders, shopifyProducts } from './shopify.js';
 import { imagesOn, makeImage } from './imagegen.js';
 import { driveOn, driveSearch, driveRead } from './drive.js';
-import { macCanReadFiles, findOnMac, readOnMac, macV3, writeOnMac, trashOnMac, openFileOnMac, mediaOnMac, displayOffOnMac } from './computer.js';
+import { macCanReadFiles, findOnMac, readOnMac, macV3, macV4, screenOnMac, writeOnMac, trashOnMac, openFileOnMac, mediaOnMac, displayOffOnMac } from './computer.js';
 import { shopifySetPrice } from './shopify.js';
 import { mailOn, sendEmail } from './mail.js';
 import { newTurn } from './gate.js';
@@ -99,7 +99,7 @@ const DRIVE_TOOLS = [
 ];
 const MACFILE_TOOLS = [
   { name: 'find_file_on_computer', description: 'חיפוש קובץ לפי שם במק של אדוני, בתיקיות שולחן העבודה, מסמכים והורדות.', input_schema: { type: 'object', properties: { name: str('שם הקובץ או חלק ממנו') }, required: ['name'] } },
-  { name: 'read_file_on_computer', description: 'קריאת קובץ טקסט, CSV או Word מהמק של אדוני, לפי הנתיב שחזר מהחיפוש (מתחיל ב-Desktop/, Documents/ או Downloads/).', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }
+  { name: 'read_file_on_computer', description: 'קריאת קובץ מהמק של אדוני, לפי הנתיב שחזר מהחיפוש (מתחיל ב-Desktop/, Documents/ או Downloads/): טקסט, CSV, Word, וגם קובצי קוד (js, py, html, css, sh ועוד). כשאדוני מבקש שתקראי תוכנה, קראי את הקובץ והסבירי בקצרה מה הקוד עושה, ואם יש בו בעיה אמרי איפה.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }
 ];
 
 const SCREEN_TOOLS = [
@@ -112,6 +112,9 @@ const SCREEN_TOOLS = [
 const BRIEF_TOOLS = [
   { name: 'daily_brief', description: 'איסוף כל הנתונים לתדריך: מזג אוויר, יומן, מיילים חשובים, הודעות וואטסאפ אחרונות, תזכורות ומצב החנות. השתמשי בזה כשאדוני אומר בוקר טוב, מבקש תדריך או שואל מה קורה היום. אחרי שקיבלת את הנתונים אמרי תדריך של ארבעה עד שישה משפטים קצרים, מהחשוב לפחות חשוב, ובלי להקריא רשימות ארוכות.', input_schema: { type: 'object', properties: {} } }
 ];
+const MAC4_TOOLS = [
+  { name: 'look_at_computer_screen', description: 'צילום אחד של מסך המק של אדוני כדי לראות מה פתוח בו עכשיו: תוכנה, חלון, שגיאה, מסמך, קוד. השתמשי בזה רק כשאדוני מבקש שתסתכלי על המסך או שואל מה יש בו. תארי רק מה שנראה בפועל.', input_schema: { type: 'object', properties: { question: str('מה אדוני רוצה לדעת על מה שעל המסך') }, required: ['question'] } }
+];
 const MAIL_TOOLS = [
   { name: 'send_email', description: 'שליחת מייל מהחשבון של אדוני. בקריאה הראשונה הכלי לא שולח: הוא מחזיר לך הוראה להקריא לאדוני את הנמען, הנושא והתוכן ולשאול אם לאשר. רק אחרי שאדוני אישר, קראי שוב עם אותם פרטים.', input_schema: { type: 'object', properties: { to: str('כתובת מייל מלאה אחת'), subject: str('נושא'), body: str('תוכן המייל') }, required: ['to', 'subject', 'body'] } }
 ];
@@ -119,7 +122,7 @@ const SHOP_WRITE_TOOLS = [
   { name: 'shop_set_price', description: 'שינוי מחיר של מוצר בחנות של אדוני. בקריאה הראשונה הכלי לא משנה: הוא מחזיר לך מה ישתנה, ואת מקריאה ושואלת אם לאשר. רק אחרי שאדוני אישר, קראי שוב עם אותם פרטים.', input_schema: { type: 'object', properties: { title: str('שם המוצר'), price: { type: 'number', description: 'המחיר החדש, במטבע של החנות' } }, required: ['title', 'price'] } }
 ];
 const MAC3_TOOLS = [
-  { name: 'write_file_on_computer', description: 'יצירת קובץ טקסט חדש במק של אדוני (txt, md או csv) בתוך Desktop/, Documents/ או Downloads/. לא דורס קובץ קיים.', input_schema: { type: 'object', properties: { path: str('למשל Desktop/רשימה.txt'), text: str('תוכן הקובץ') }, required: ['path', 'text'] } },
+  { name: 'write_file_on_computer', description: 'יצירת קובץ חדש במק של אדוני בתוך Desktop/, Documents/ או Downloads/: טקסט, וגם קוד (py, js, html, css, sh, json ועוד). כשאדוני מבקש שתכתבי תוכנה או סקריפט, כתבי קוד מלא ועובד ושמרי אותו בקובץ עם הסיומת המתאימה, ואמרי לו איפה הוא ואיך מריצים אותו. לא דורס קובץ קיים, ואינך מריצה את הקוד בעצמך.', input_schema: { type: 'object', properties: { path: str('למשל Desktop/רשימה.txt'), text: str('תוכן הקובץ') }, required: ['path', 'text'] } },
   { name: 'trash_file_on_computer', description: 'העברת קובץ לאשפה במק של אדוני (אפשר לשחזר מהאשפה). בקריאה הראשונה הכלי לא מעביר: את מקריאה את שם הקובץ ושואלת אם לאשר, ורק אחרי אישור קוראת שוב.', input_schema: { type: 'object', properties: { path: str('הנתיב כפי שחזר מהחיפוש') }, required: ['path'] } },
   { name: 'open_file_on_computer', description: 'פתיחת קובץ במק של אדוני, לפי הנתיב שחזר מהחיפוש.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
   { name: 'control_music', description: 'שליטה במוזיקה במק של אדוני (ספוטיפיי או מיוזיק): play, pause, playpause, next, previous.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['play', 'pause', 'playpause', 'next', 'previous'] } }, required: ['action'] } },
@@ -269,7 +272,7 @@ export function makeSentenceSplitter(emit, minLen = 25) {
 // Streamed, tool-capable reply. onSentence(text) is called for each sentence as soon as it is
 // complete. Returns the full reply. Shares conversation memory with chat().
 let webOk = true, webErr = '';
-export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles(), mail: mailOn(), macV3: macV3() }; }
+export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles(), mail: mailOn(), macV3: macV3(), macV4: macV4() }; }
 // Short everyday requests (clock, weather, calendar, reminders, opening and closing things) get the
 // fast model first; everything else gets the stronger one.
 const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|לילה טוב|תעצרי|מוזיקה|השיר/;
@@ -303,7 +306,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
   const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS, ...REMINDER_TOOLS,
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
-    ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...BRIEF_TOOLS,
+    ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...(macV4() ? MAC4_TOOLS : []), ...BRIEF_TOOLS,
     ...(opts.control ? SCREEN_TOOLS : [])].filter(t => opts.control || t.name !== 'look_through_camera');
   if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר. למזג אוויר הכרטיס מוצג לבד כשאת קוראת ל-get_weather, אז אל תציגי לו כרטיס נוסף."; }
   if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
@@ -344,6 +347,11 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
                 parts.push('תזכורות פתוחות:\n' + listReminders());
                 if (shopifyOn()) { try { parts.push('החנות, יומיים אחרונים: ' + await shopifyOrders(2)); } catch (e) {} }
                 return parts.filter(Boolean).join('\n\n').slice(0, 6000);
+              })()
+            : b.name === 'look_at_computer_screen' ? await (async () => {
+                const buf = await askScreen(screenOnMac);
+                if (!buf) return 'לא התקבל צילום מסך מהמק. ייתכן שצריך לאשר הקלטת מסך בהגדרות המק (פרטיות ואבטחה, הקלטת מסך), או שתוכנת העזר לא מחוברת.';
+                return [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: buf.toString('base64') } }, { type: 'text', text: 'זה צילום המסך של המק ברגע זה. השאלה של אדוני: ' + (inp.question || '') }];
               })()
             : b.name === 'send_email' ? await sendEmail(inp.to, inp.subject, inp.body)
             : b.name === 'shop_set_price' ? await shopifySetPrice(inp.title, inp.price)

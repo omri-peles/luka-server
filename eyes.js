@@ -15,6 +15,16 @@ export function askFrame(control) {
   });
 }
 
+// Same idea for the Mac's screen: start(id) asks the helper on the Mac to post one screenshot.
+export function askScreen(start) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return new Promise(resolve => {
+    const t = setTimeout(() => { waiters.delete(id); resolve(null); }, 20000);
+    waiters.set(id, (buf) => { clearTimeout(t); resolve(buf); });
+    if (!start(id)) { clearTimeout(t); waiters.delete(id); resolve(null); }
+  });
+}
+
 export function mountEyes(app, authOk) {
   app.post('/camera/frame', express.raw({ type: () => true, limit: '2mb' }), (req, res) => {
     if (!authOk(req)) return res.status(401).json({ error: 'bad token' });

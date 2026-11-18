@@ -6,6 +6,7 @@ let lastSeen = 0;
 let macSeen = 0, macWake = null, macVersion = 1;
 export const macCanReadFiles = () => macOnline() && macVersion >= 2;
 export const macV3 = () => macOnline() && macVersion >= 3;
+export const macV4 = () => macOnline() && macVersion >= 4;
 
 export function computerOnline() { return Date.now() - lastSeen < 12000 || Date.now() - macSeen < 45000; }
 export function takeAll() {
@@ -118,8 +119,9 @@ const okPath = (p) => /^(Desktop|Documents|Downloads)\//.test(p) && !/\.\./.test
 const ask = (cmd, ms = 10000) => waitFor(send(cmd), ms).then(r => r || 'לא התקבלה תשובה מהמחשב.');
 export function writeOnMac(path, text) {
   const p = clean(path); const body = (text || '').toString();
-  if (!okPath(p) || !/\.(txt|md|csv)$/i.test(p)) return 'לא בוצע: הנתיב צריך להתחיל ב-Desktop/, Documents/ או Downloads/ ולהסתיים ב-.txt, .md או .csv.';
-  if (!body || body.length > 20000) return 'לא בוצע: התוכן ריק או ארוך מדי.';
+  const exts = macV4() ? /\.(txt|md|csv|json|html|xml|css|js|ts|jsx|tsx|py|sh|rb|php|java|c|h|cpp|go|rs|swift|kt|sql|yaml|yml|toml)$/i : /\.(txt|md|csv)$/i;
+  if (!okPath(p) || !exts.test(p)) return 'לא בוצע: הנתיב צריך להתחיל ב-Desktop/, Documents/ או Downloads/ ולהסתיים בסיומת של קובץ טקסט או קוד (למשל .txt, .py, .js, .html).';
+  if (!body || body.length > 40000) return 'לא בוצע: התוכן ריק או ארוך מדי.';
   if (!macV3()) return OLD;
   return ask({ type: 'write', what: p, label: Buffer.from(body, 'utf8').toString('base64') });
 }
@@ -141,3 +143,6 @@ export function mediaOnMac(action) {
   return macV3() ? ask({ type: 'media', what: a }) : OLD;
 }
 export function displayOffOnMac() { return macV3() ? ask({ type: 'displaysleep', what: '-' }) : OLD; }
+
+// Helper version 4+: one picture of the Mac's screen. The helper posts it to /camera/frame.
+export function screenOnMac(frameId) { if (!macV4()) return false; send({ type: 'screen', what: frameId }); return true; }

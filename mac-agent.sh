@@ -4,7 +4,8 @@
 # set the volume, control music playback, turn the display off, and work with files only inside
 # Desktop, Documents and Downloads: find by name, read text/Word, open, create a NEW text file
 # (never overwrites), and move a file to the Trash. It cannot run arbitrary commands and it
-# never updates itself.
+# never updates itself. It can also take one picture of the screen when Luka is asked to look at it,
+# and it refuses to read files that hold keys or passwords.
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 DIR="$HOME/.luka"
 SERVER="$(cat "$DIR/server" 2>/dev/null)"
@@ -89,7 +90,7 @@ write_file() {  # new text file only (never overwrites); content arrives base64-
   local rel="$1"
   case "$rel" in *..*|/*) echo "לא נכתב: נתיב לא תקין."; return ;; esac
   case "$rel" in Desktop/*|Documents/*|Downloads/*) ;; *) echo "לא נכתב: אפשר לכתוב רק לתוך Desktop, Documents או Downloads."; return ;; esac
-  case "$(printf '%s' "$rel" | /usr/bin/tr 'A-Z' 'a-z')" in *.txt|*.md|*.csv) ;; *) echo "לא נכתב: אפשר ליצור רק קובצי txt, md או csv."; return ;; esac
+  case "$(printf '%s' "$rel" | /usr/bin/tr 'A-Z' 'a-z')" in *.txt|*.md|*.csv|*.json|*.html|*.xml|*.js|*.ts|*.jsx|*.tsx|*.py|*.sh|*.rb|*.php|*.java|*.c|*.h|*.cpp|*.go|*.rs|*.swift|*.kt|*.sql|*.yaml|*.yml|*.toml|*.css) ;; *) echo "לא נכתב: סוג הקובץ לא נתמך. אפשר ליצור קובצי טקסט וקוד."; return ;; esac
   local f="$HOME/$rel"
   [ -d "$(/usr/bin/dirname "$f")" ] || { echo "לא נכתב: התיקייה לא קיימת."; return; }
   [ -e "$f" ] && { echo "לא נכתב: כבר קיים קובץ בשם הזה, ואיני דורסת קבצים."; return; }
@@ -124,9 +125,10 @@ read_file() {  # path relative to the home folder, only inside Desktop / Documen
   case "$real" in "$HOME/Desktop/"*|"$HOME/Documents/"*|"$HOME/Downloads/"*) ;; *) echo "לא נקרא: הקובץ מחוץ לתיקיות המותרות."; return ;; esac
   local lower; lower="$(printf '%s' "$rel" | /usr/bin/tr 'A-Z' 'a-z')"
   case "$lower" in
-    *.txt|*.md|*.csv|*.json|*.html|*.xml|*.log) /usr/bin/head -c 12000 "$real" ;;
+    *.pem|*.key|*.p12|*id_rsa*|*.env|*.env.*|*/.*) echo "לא נקרא: זה קובץ של מפתחות או סודות, ואיני קוראת קבצים כאלה." ;;
+    *.txt|*.md|*.csv|*.json|*.html|*.xml|*.log|*.js|*.ts|*.jsx|*.tsx|*.py|*.sh|*.rb|*.php|*.java|*.c|*.h|*.cpp|*.go|*.rs|*.swift|*.kt|*.sql|*.yaml|*.yml|*.toml|*.css) /usr/bin/head -c 20000 "$real" ;;
     *.docx|*.doc|*.rtf|*.odt) /usr/bin/textutil -convert txt -stdout "$real" 2>/dev/null | /usr/bin/head -c 12000 ;;
-    *) echo "לא נקרא: סוג הקובץ לא נתמך. נתמכים קובצי טקסט, CSV, Word ו-RTF." ;;
+    *) echo "לא נקרא: סוג הקובץ לא נתמך. נתמכים קובצי טקסט, קוד, CSV, Word ו-RTF." ;;
   esac
 }
 
@@ -156,6 +158,17 @@ handle() {  # type, a1, a2
     trash) trash_file "$2" ;;
     openfile) REAL="$(safe_path "$2")" && /usr/bin/open "$REAL" && echo "הקובץ נפתח במחשב: $2" || echo "לא נפתח: הקובץ לא נמצא או מחוץ לתיקיות המותרות." ;;
     media) media "$2" ;;
+    screen)   # one picture of the screen, sent to Luka only when she is asked to look
+      SHOT="$DIR/screen.jpg"; /bin/rm -f "$SHOT"
+      /usr/sbin/screencapture -x -t jpg "$SHOT" >/dev/null 2>&1
+      if [ -s "$SHOT" ]; then
+        /usr/bin/sips -Z 1568 -s formatOptions 60 "$SHOT" >/dev/null 2>&1
+        /usr/bin/curl -fsS --max-time 20 -X POST "$SERVER/camera/frame" -H "x-luka-token: $TOKEN" -H "x-frame-id: $2" -H "content-type: image/jpeg" --data-binary "@$SHOT" >/dev/null 2>&1 && echo "צילום המסך נשלח." || echo "לא הצלחתי לשלוח את צילום המסך."
+        /bin/rm -f "$SHOT"
+      else
+        /usr/bin/curl -fsS --max-time 10 -X POST "$SERVER/camera/frame" -H "x-luka-token: $TOKEN" -H "x-frame-id: $2" -H "x-frame-error: 1" -H "content-type: image/jpeg" --data-binary "x" >/dev/null 2>&1
+        echo "לא הצלחתי לצלם את המסך. צריך לאשר הקלטת מסך בהגדרות המק."
+      fi ;;
     displaysleep) /usr/bin/pmset displaysleepnow >/dev/null 2>&1 && echo "המסך של המחשב כובה." || echo "לא בוצע." ;;
     *) echo "לא בוצע: פעולה לא מוכרת." ;;
   esac
@@ -165,7 +178,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 3" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 4" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"
