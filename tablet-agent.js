@@ -6,7 +6,7 @@ import { load, save } from './store.js';
 import { isConnected } from './google.js';
 import { PERSONA, TOOLS, WEATHER_TOOL, WA_TOOLS, runTool, liveContext, nowLine } from './brain.js';
 import { CATEGORIES, remember, forget, memoryText } from './memory.js';
-import { buildSite, editSite, undoSite, sitesText, announce } from './sites.js';
+import { buildSite, editSite, undoSite, sitesText, announce, clearAway } from './sites.js';
 import { startResearch } from './research.js';
 import { askFrame } from './eyes.js';
 import { setReminder, listReminders, cancelReminder } from './reminders.js';
@@ -102,6 +102,16 @@ const MACFILE_TOOLS = [
   { name: 'read_file_on_computer', description: 'קריאת קובץ טקסט, CSV או Word מהמק של אדוני, לפי הנתיב שחזר מהחיפוש (מתחיל ב-Desktop/, Documents/ או Downloads/).', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }
 ];
 
+const SCREEN_TOOLS = [
+  { name: 'show_on_screen', description: 'הצגת כרטיס מידע על המסך של לוקה, ליד הטבעת. השתמשי בזה ביוזמתך כשיש מידע שנוח לראות בעיניים: מזג אוויר, היומן של היום, מכירות והזמנות, רשימת מוצרים, תוצאות חיפוש עם מספרים, תזכורות. הכרטיס הוא תקציר של נתונים, לא תמלול של מה שאת אומרת: שורות קצרות של כותרת וערך. במקביל אמרי בקול רק את העיקר.', input_schema: { type: 'object', properties: {
+      title: str('כותרת קצרה לכרטיס'),
+      rows: { type: 'array', description: 'עד שמונה שורות', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label', 'value'] } },
+      note: str('שורת הערה קצרה אחת (לא חובה)') }, required: ['title', 'rows'] } },
+  { name: 'clear_screen', description: 'סגירת כל הכרטיסים שעל המסך של לוקה, כשאדוני מבקש לנקות או לסגור אותם.', input_schema: { type: 'object', properties: {} } }
+];
+const BRIEF_TOOLS = [
+  { name: 'daily_brief', description: 'איסוף כל הנתונים לתדריך: מזג אוויר, יומן, מיילים חשובים, הודעות וואטסאפ אחרונות, תזכורות ומצב החנות. השתמשי בזה כשאדוני אומר בוקר טוב, מבקש תדריך או שואל מה קורה היום. אחרי שקיבלת את הנתונים אמרי תדריך של ארבעה עד שישה משפטים קצרים, מהחשוב לפחות חשוב, ובלי להקריא רשימות ארוכות.', input_schema: { type: 'object', properties: {} } }
+];
 const MAIL_TOOLS = [
   { name: 'send_email', description: 'שליחת מייל מהחשבון של אדוני. בקריאה הראשונה הכלי לא שולח: הוא מחזיר לך הוראה להקריא לאדוני את הנמען, הנושא והתוכן ולשאול אם לאשר. רק אחרי שאדוני אישר, קראי שוב עם אותם פרטים.', input_schema: { type: 'object', properties: { to: str('כתובת מייל מלאה אחת'), subject: str('נושא'), body: str('תוכן המייל') }, required: ['to', 'subject', 'body'] } }
 ];
@@ -262,7 +272,7 @@ let webOk = true, webErr = '';
 export function agentStatus() { return { webSearch: webOk, webError: webErr, models: MODELS, shopify: shopifyOn(), images: imagesOn(), drive: driveOn(), macFiles: macCanReadFiles(), mail: mailOn(), macV3: macV3() }; }
 // Short everyday requests (clock, weather, calendar, reminders, opening and closing things) get the
 // fast model first; everything else gets the stronger one.
-const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|בוקר טוב|לילה טוב|תעצרי|מוזיקה|השיר/;
+const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|לילה טוב|תעצרי|מוזיקה|השיר/;
 const pickModels = (text, followup) => (!followup && text.length <= 60 && QUICK.test(text) ? ['claude-haiku-5-5', 'claude-sonnet-5-5'] : MODELS);
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
@@ -289,7 +299,11 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   if (opts.followup) sys += "\n\nהמשפט האחרון נקלט במיקרופון בלי שאדוני אמר את שמך. ייתכן שהוא בכלל לא פנה אלייך: רעש, טלוויזיה, שיחה עם אדם אחר או קטע משובש. אם המשפט אינו המשך טבעי וברור של השיחה איתך או בקשה מובנת אלייך, עני אך ורק במילה [שקט] ותו לא. במקרה כזה אל תשאלי ואל תסבירי.";
   const tools = [...(connected ? TOOLS : []), WEATHER_TOOL, ...WA_TOOLS, ...MEMORY_TOOLS, ...COMPUTER_TOOLS, ...SITE_TOOLS, ...EXTRA_TOOLS, ...REMINDER_TOOLS,
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
-    ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : [])];
+    ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...BRIEF_TOOLS,
+    ...(opts.control ? SCREEN_TOOLS : [])].filter(t => opts.control || t.name !== 'look_through_camera');
+  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר."; }
+  if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
+  if (opts.channel === 'whatsapp') sys += "\n\nזו התכתבות בוואטסאפ עם אדוני, לא שיחה קולית. הוא לא מול המסך של לוקה. כתבי תשובה עניינית, אפשר כמה שורות, ומותר לצרף קישורים. אל תכתבי 'בודקת, אדוני' לפני חיפוש. תוצאות של משימות רקע יישלחו אליו בהודעה נפרדת כשיהיו מוכנות.";
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
   const withWeb = () => (webOk ? [...tools, WEB_TOOL] : tools);
   sys += "\n\nיש לך חיפוש חי באינטרנט (web_search). השתמשי בו בכל שאלה על מה שקורה בעולם עכשיו או לאחרונה: חדשות, דוחות כספיים, מניות ושערים, ספורט, מחירים, מוצרים, אנשים וחברות, וכל עובדה שאינך בטוחה שהיא מעודכנת. לעולם אל תאמרי שאין לך יכולת לבדוק דבר כזה. אל תחפשי באינטרנט את השעה, התאריך, היומן, המייל, הוואטסאפ או מזג האוויר: אלה נמצאים אצלך בנתונים שלמעלה ובכלים הייעודיים, והשעון שלמעלה מדויק. לפני חיפוש אמרי רק: בודקת, אדוני. אחרי החיפוש עני בשלושה עד חמישה משפטים עם המספרים והעובדות העיקריים, ואמרי בקצרה מאיזה מקור הם. אל תקריאי כתובות אינטרנט. אם המקורות סותרים זה את זה או שלא מצאת, אמרי זאת.";
@@ -315,6 +329,18 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
+            : b.name === 'show_on_screen' ? (opts.control ? (opts.control({ card: { title: String(inp.title || '').slice(0, 80), rows: (Array.isArray(inp.rows) ? inp.rows : []).slice(0, 8).map(r => ({ label: String(r.label || '').slice(0, 60), value: String(r.value || '').slice(0, 120) })), note: String(inp.note || '').slice(0, 200) } }), 'הכרטיס מוצג על המסך.') : 'אין מסך זמין כרגע.')
+            : b.name === 'clear_screen' ? (opts.control ? (opts.control({ cards: 'clear' }), 'המסך נוקה.') : 'אין מסך זמין כרגע.')
+            : b.name === 'daily_brief' ? await (async () => {
+                const parts = [];
+                try { parts.push('מזג אוויר: ' + await runTool('get_weather', {})); } catch (e) {}
+                try { parts.push((await liveContext()) || ''); } catch (e) {}
+                const wa = (load().waRecent || []).slice(-6);
+                if (wa.length) parts.push('הודעות וואטסאפ אחרונות:\n' + wa.map(m => `- ${m.from}: ${m.body}`).join('\n'));
+                parts.push('תזכורות פתוחות:\n' + listReminders());
+                if (shopifyOn()) { try { parts.push('החנות, יומיים אחרונים: ' + await shopifyOrders(2)); } catch (e) {} }
+                return parts.filter(Boolean).join('\n\n').slice(0, 6000);
+              })()
             : b.name === 'send_email' ? await sendEmail(inp.to, inp.subject, inp.body)
             : b.name === 'shop_set_price' ? await shopifySetPrice(inp.title, inp.price)
             : b.name === 'write_file_on_computer' ? await writeOnMac(inp.path, inp.text)

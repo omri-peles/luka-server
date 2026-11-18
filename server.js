@@ -14,6 +14,7 @@ import fs from 'fs';
 import { readSite, deleteSite } from './sites.js';
 import { mountEars } from './ears.js';
 import { mountEyes } from './eyes.js';
+import { phoneChat } from './phone-agent.js';
 
 import { whatsappOwner, smsOwner, callOwner } from './phone.js';
 import { tick } from './proactive.js';
@@ -186,6 +187,7 @@ mountEyes(app, authOk);
 // (and with it the phone agent) from starting.
 import('./drive.js').then(m => m.mountDrive(app)).catch(e => console.error('drive module', e.message));
 import('./reminders.js').catch(e => console.error('reminders module', e.message));
+import('./shopwatch.js').catch(e => console.error('shop watch module', e.message));
 app.get('/images/:id', async (req, res) => {        // pictures Luka made (random, unguessable ids)
   let p = null; try { p = (await import('./imagegen.js')).imagePath(req.params.id); } catch (e) {}
   if (!p || !fs.existsSync(p)) return res.status(404).type('text/plain').send('Not found');
@@ -346,7 +348,7 @@ app.post('/convo/turn', async (req, res) => {
     const job = crypto.randomBytes(8).toString('hex');
     convoJobs.set(job, (async () => {
       let reply;
-      try { reply = await chat(speech, { phone: true }); } catch { reply = 'סליחה אדוני, נסה שוב.'; }
+      try { reply = await phoneChat(speech, { phone: true }); } catch { reply = 'סליחה אדוני, נסה שוב.'; }
       return { reply, aid: await synthesize(reply) };
     })());
     setTimeout(() => convoJobs.delete(job), 120000);
@@ -386,7 +388,15 @@ app.post('/whatsapp', async (req, res) => {
     return res.type('text/xml').send('<Response><Message>מתקשרת אליך עכשיו, אדוני.</Message></Response>');
   }
   let reply = 'רגע אדוני, אני כאן.';
-  try { if (body) reply = await chat(body); } catch { reply = 'סליחה אדוני, יש לי קושי רגעי. נסה שוב.'; }
+  // Twilio waits only about 15 seconds for an answer. If Luka needs longer (a search, several
+  // steps), acknowledge now and send the real answer as a separate WhatsApp message when ready.
+  const work = body ? phoneChat(body).catch(() => 'סליחה אדוני, יש לי קושי רגעי. נסה שוב.') : Promise.resolve(reply);
+  const first = await Promise.race([work, new Promise(r => setTimeout(() => r(null), 11000))]);
+  if (first === null) {
+    work.then(late => whatsappOwner(late)).catch(() => {});
+    return res.type('text/xml').send('<Response><Message>בודקת, אדוני. אחזור אליך מיד.</Message></Response>');
+  }
+  reply = first;
   const safe = reply.replace(/[<&]/g, ' ');
   res.type('text/xml').send(`<Response><Message>${safe}</Message></Response>`);
 });

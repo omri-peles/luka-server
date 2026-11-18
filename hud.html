@@ -94,9 +94,27 @@
   /* no on-screen captions of speech — keep the HUD clean, status only */
   #reply, #said{ display:none !important; }
   .hidden{ display:none !important; }
+  /* ---------- info cards (data shown beside the ring; never a transcript of her speech) ---------- */
+  #cards{ position:fixed; z-index:5; top:5vh; inset-inline-start:3vw; width:min(380px, 30vw); max-height:90vh;
+    display:flex; flex-direction:column; gap:14px; pointer-events:none; }
+  .card{ pointer-events:auto; position:relative; padding:16px 18px 14px; border:1px solid var(--cyan-dim); border-radius:14px;
+    background:linear-gradient(160deg, rgba(10,28,42,.88), rgba(5,12,20,.92)); box-shadow:0 0 26px rgba(79,227,242,.16), inset 0 0 24px rgba(79,227,242,.05);
+    backdrop-filter:blur(6px); animation:cardIn .35s ease-out; }
+  .card.out{ opacity:0; transform:translateY(-8px); transition:all .3s; }
+  .card h3{ margin:0 26px 10px 0; font-size:1.02rem; font-weight:600; letter-spacing:.02em; color:var(--cyan); }
+  .card .row{ display:flex; justify-content:space-between; gap:14px; padding:6px 0; border-top:1px solid var(--cyan-faint); font-size:.95rem; }
+  .card .row span:first-child{ color:var(--ink); opacity:.75; flex:0 0 auto; max-width:45%; }
+  .card .row span:last-child{ text-align:end; color:#e6f7fb; overflow-wrap:anywhere; }
+  .card .note{ margin-top:10px; font-size:.9rem; line-height:1.5; color:#cfeaf2; opacity:.9; }
+  .card img{ display:block; width:100%; border-radius:10px; margin-top:4px; }
+  .card a{ display:inline-block; margin-top:8px; font-size:.82rem; color:var(--cyan); text-decoration:none; opacity:.8; overflow-wrap:anywhere; }
+  .card .x{ position:absolute; top:8px; inset-inline-start:10px; width:26px; height:26px; border:0; border-radius:50%; background:transparent; color:var(--cyan); font-size:18px; cursor:pointer; opacity:.6; }
+  @keyframes cardIn{ from{ opacity:0; transform:translateX(18px); } to{ opacity:1; transform:none; } }
+  @media (max-width:760px){ #cards{ width:92vw; inset-inline-start:4vw; top:auto; bottom:3vh; max-height:46vh; } }
 </style>
 </head>
 <body>
+  <div id="cards"></div>
   <div class="bg"></div><div class="grid"></div>
   <div class="bracket tl"></div><div class="bracket tr"></div><div class="bracket bl"></div><div class="bracket br"></div>
   <div class="wordmark">L U K A</div>
@@ -316,6 +334,26 @@ function playClip(buf){            // plays one clip; does not touch listening s
     }catch(e){ resolve(); }
   });
 }
+// ---------- info cards on the screen ----------
+function closeCard(el){ if(!el || !el.parentNode) return; el.classList.add("out"); setTimeout(()=>{ try{ el.remove(); }catch(e){} }, 320); }
+function clearCards(){ document.querySelectorAll("#cards .card").forEach(closeCard); }
+function showCard(c){
+  if(!c || typeof c !== "object") return;
+  const box = $("cards"), el = document.createElement("div"); el.className = "card";
+  const x = document.createElement("button"); x.className = "x"; x.textContent = "×"; x.onclick = ()=> closeCard(el); el.appendChild(x);
+  const h = document.createElement("h3"); h.textContent = String(c.title || ""); el.appendChild(h);
+  for(const r of (Array.isArray(c.rows) ? c.rows : []).slice(0, 8)){
+    const row = document.createElement("div"); row.className = "row";
+    const a = document.createElement("span"), b = document.createElement("span");
+    a.textContent = String(r.label || ""); b.textContent = String(r.value || ""); row.appendChild(a); row.appendChild(b); el.appendChild(row);
+  }
+  if(c.image && /^https:\/\//.test(c.image)){ const im = document.createElement("img"); im.src = c.image; im.alt = ""; el.appendChild(im); }
+  if(c.note){ const n = document.createElement("div"); n.className = "note"; n.textContent = String(c.note); el.appendChild(n); }
+  if(c.link && /^https:\/\//.test(c.link)){ const l = document.createElement("a"); l.href = c.link; l.target = "_blank"; l.rel = "noopener"; l.textContent = c.link.replace(/^https:\/\//, ""); el.appendChild(l); }
+  box.prepend(el);
+  const all = box.querySelectorAll(".card"); for(let i = 3; i < all.length; i++) closeCard(all[i]);   // at most three at a time
+  setTimeout(()=> closeCard(el), 120000);                                                              // and each leaves after two minutes
+}
 // Her eyes: one frame from the camera, only when she asks for it; the camera is switched off right after.
 async function sendFrame(id){
   const post = (body, err) => fetch(SERVER + "/camera/frame", { method:"POST",
@@ -362,6 +400,8 @@ async function handleStream(text, my, followup){
         if(o.s) say(o.s);
         if(o.silent) silent = true;
         if(o.need === "camera") sendFrame(o.id);
+        if(o.card) showCard(o.card);
+        if(o.cards === "clear") clearCards();
       }
     }
     await chain;
@@ -619,6 +659,7 @@ async function pollUpdates(){
     const r = await fetch(SERVER + "/updates", { headers:{ "x-luka-token":tok } });
     if(!r.ok) return;
     const j = await r.json();
+    for(const it of (j.items||[])) if(it.card) showCard(it.card);
     const text = (j.items||[]).map(i => i.text).filter(Boolean).join(" ");
     if(text) await speak(text);
   }catch(e){}

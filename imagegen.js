@@ -35,7 +35,7 @@ export function makeImage(description, title) {
     fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(path.join(DIR, id), buf);
     let opened = false;
     if (computerOnline()) opened = /^נפתח/.test(await openOnComputer(BASE() + '/images/' + id, title));
-    announce(`אדוני, התמונה ${title} מוכנה` + (opened ? ' ופתוחה במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותה.'));
+    announce(`אדוני, התמונה ${title} מוכנה` + (opened ? ' ופתוחה במחשב.' : '.'), { title, image: BASE() + '/images/' + id }, BASE() + '/images/' + id);
   })().catch(e => { console.error('image failed', e.message); announce(`אדוני, לא הצלחתי ליצור את התמונה ${title}.`); })
     .finally(() => { busy--; });
   return `התחלתי ליצור את התמונה "${title}". זה לוקח עד חצי דקה, ואודיע כשהיא מוכנה ופתוחה במחשב.`;

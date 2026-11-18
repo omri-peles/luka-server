@@ -41,10 +41,15 @@ export async function shopifyOrders(days, limit) {
       o.slice(0, 15).map(x => `- ${x.name}, ${x.createdAt.slice(0, 10)}, ${money(x.currentTotalPriceSet)}, תשלום ${x.displayFinancialStatus}, משלוח ${x.displayFulfillmentStatus}: ` + x.lineItems.edges.map(l => `${l.node.quantity}x ${l.node.title}`).join('; ')).join('\n');
   } catch (e) { return 'לא הצלחתי לקרוא הזמנות. ' + e.message; }
 }
+export async function latestOrder() {
+  const data = await gql(`{ orders(first:1, sortKey:CREATED_AT, reverse:true){ edges{ node{ id name currentTotalPriceSet{ shopMoney{ amount currencyCode } } lineItems(first:5){ edges{ node{ title quantity } } } } } } }`);
+  const n = data.orders.edges[0] && data.orders.edges[0].node; if (!n) return null;
+  return { id: n.id, name: n.name, total: money(n.currentTotalPriceSet), items: n.lineItems.edges.map(l => `${l.node.quantity}x ${l.node.title}`).join(', ') };
+}
 export async function shopifyProducts(query, lowStock) {
   try {
     const q = [(query || '').toString().trim(), lowStock != null && lowStock !== '' ? `inventory_total:<=${Number(lowStock) || 0}` : ''].filter(Boolean).join(' ');
-    const data = await gql(`query($q:String,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title status totalInventory priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } }`, { q: q || null, n: 20 });
+    const data = await gql(`query($q:String,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title status totalInventory priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } }`, { q: q || null, n: 50 });
     const p = data.products.edges.map(e => e.node);
     if (!p.length) return 'לא נמצאו מוצרים מתאימים בחנות.';
     return p.map(x => `- ${x.title}: ${Number(x.priceRangeV2.minVariantPrice.amount).toLocaleString('he-IL')} ${x.priceRangeV2.minVariantPrice.currencyCode}, מלאי ${x.totalInventory}, מצב ${x.status}`).join('\n');

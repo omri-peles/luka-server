@@ -29,10 +29,18 @@ export function readSite(slug) {
   try { return fs.readFileSync(file(slug), 'utf8'); } catch { return null; }
 }
 
-function announce(text) {
+// When the owner last spoke to Luka by phone or WhatsApp (not at the tablet): results of
+// background work are then also sent to his WhatsApp.
+let awayAt = 0;
+export const setAway = () => { awayAt = Date.now(); };
+export const clearAway = () => { awayAt = 0; };
+// text: what she says on the tablet. card: optional thing to show on the screen.
+// link: optional address added to the WhatsApp copy. always: send to WhatsApp even when he is home.
+function announce(text, card, link, always) {
   const s = load();
   if (!Array.isArray(s.updates)) s.updates = [];
-  s.updates.push({ id: Date.now().toString(36), text, at: Date.now() });
+  s.updates.push({ id: Date.now().toString(36), text, at: Date.now(), ...(card ? { card } : {}) });
+  if (always || Date.now() - awayAt < 15 * 60000) import('./phone.js').then(m => m.whatsappOwner(text + (link ? '\n' + link : ''))).catch(() => {});
   if (s.updates.length > 50) s.updates = s.updates.slice(-50);
   save();
 }
@@ -95,7 +103,8 @@ async function finish(slug, name, html, verb, say, tail) {
   save();
   let opened = false;
   if (computerOnline()) { const res = await openOnComputer(siteUrl(slug) + '?v=' + now.toString(36), name); opened = /^נפתח/.test(res); }
-  announce((say || `אדוני, האתר ${name} ${verb}`) + (opened ? ' ופתוח במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותו.') + (tail ? ' ' + tail : ''));
+  announce((say || `אדוני, האתר ${name} ${verb}`) + (opened ? ' ופתוח במחשב.' : '. המחשב לא מחובר כרגע, אז לא פתחתי אותו.') + (tail ? ' ' + tail : ''),
+    { title: name, note: tail || (say ? '' : 'האתר ' + verb), link: siteUrl(slug) }, siteUrl(slug));
 }
 // Used by research.js: publish a ready page the same way sites are published.
 export const publishPage = (slug, name, html, say, tail) => finish(slug, name, html, '', say, tail);
