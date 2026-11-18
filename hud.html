@@ -46,7 +46,7 @@
   .r-ticks{ stroke:var(--cyan-dim); stroke-width:2; stroke-dasharray:2 10; animation:spin 26s linear infinite; }
   .r-mid{ stroke:var(--cyan-dim); stroke-width:1.5; stroke-dasharray:40 14; animation:spin 12s linear infinite reverse; }
   .r-arc{ stroke:var(--cyan); stroke-width:3; stroke-linecap:round; stroke-dasharray:120 300; filter:drop-shadow(0 0 6px var(--cyan)); animation:spin 7s cubic-bezier(.6,.1,.4,.9) infinite; }
-  #level{ stroke:var(--cyan); stroke-width:4; opacity:.9; filter:drop-shadow(0 0 10px var(--cyan)); transform-origin:150px 150px; }
+  #level{ stroke:var(--cyan); stroke-width:4; opacity:.9; filter:drop-shadow(0 0 10px var(--cyan)); transform-origin:150px 150px; transform:rotate(-90deg); }
   @keyframes spin{ to{ transform:rotate(360deg); } }
 
   .core{ position:relative; width:118px; height:118px; border-radius:50%;
@@ -174,8 +174,7 @@
         <circle class="ring r-mid"   cx="150" cy="150" r="108"></circle>
         <circle class="ring r-arc"   cx="150" cy="150" r="88"></circle>
         <circle id="level" cx="150" cy="150" r="72"
-          fill="none" stroke-dasharray="452" stroke-dashoffset="452"
-          transform="rotate(-90 150 150)"></circle>
+          fill="none" stroke-dasharray="452" stroke-dashoffset="452"></circle>
       </svg>
       <div class="core" id="core"></div>
     </div>
