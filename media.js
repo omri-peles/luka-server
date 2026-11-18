@@ -23,10 +23,10 @@ function texts(o, out = []) {                          // every text block in th
 export async function watchVideo(url, question) {
   url = (url || '').toString().trim();
   if (!/^https:\/\/(www\.|m\.)?(youtube\.com\/(watch\?v=|shorts\/|live\/)|youtu\.be\/)[\w\-?=&%.]+$/.test(url)) return 'אפשר לצפות רק בסרטון ציבורי ביוטיוב, לפי כתובת מלאה.';
-  const models = [...new Set([process.env.GEMINI_VIDEO_MODEL, 'gemini-3.8-flash', 'gemini-3.8-pro', 'gemini-3.8-flash-lite'].filter(Boolean))];
+  const models = [...new Set([process.env.GEMINI_VIDEO_MODEL, 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-4-argon', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'].filter(Boolean))];
   let last = ''; const errs = [];
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', { method: 'POST', signal: AbortSignal.timeout(80000),
           headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY, 'content-type': 'application/json' },

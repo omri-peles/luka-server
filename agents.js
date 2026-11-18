@@ -117,7 +117,7 @@ export async function askAgent(run, id, task) {
   task = (task || '').toString().trim(); if (task.length < 6) return 'חסרה משימה ברורה.';
   const started = Date.now();
   try {
-    const out = await Promise.race([work(run, id, task.slice(0, 3000), '', started, 2200), new Promise(res => setTimeout(() => res(null), 75000))]);
+    const out = await Promise.race([work(run, id, task.slice(0, 3000), '', started, 3500), new Promise(res => setTimeout(() => res(null), 75000))]);
     return out === null ? `${AGENTS[id].name} עדיין עובדת וזה לוקח יותר מדי זמן לתשובה מיידית. למשימה כזו השתמשי ב-delegate_to_agents.` : (out || 'לא התקבלה תשובה.').slice(0, 7000);
   } catch (e) { return e.message === 'halted' ? 'העבודה נעצרה לבקשת אדוני.' : `${AGENTS[id].name} לא הצליחה להשלים: ${e.message}`; }
 }
@@ -153,7 +153,7 @@ export function startMission(run, announce, slug, title, goal, assignments) {
     // each agent gets one more try if it fails, and the screen is told as each one finishes
     const state = jobs.map(() => false);
     const progress = () => { try { const s = load(); if (!Array.isArray(s.updates)) s.updates = []; s.updates.push({ id: Date.now().toString(36), text: '', at: Date.now(), card: { kind: 'agents', count: state.filter(x => !x).length + 1, items: [...jobs.map((j, i) => ({ name: AGENTS[j.id].name, task: j.task.slice(0, 60), done: state[i] })), { name: 'המבקרת', task: '' }] } }); save(); } catch (e) {} };
-    const once = (j) => work(run, j.id, j.task, goal, started, 3500);
+    const once = (j) => work(run, j.id, j.task, goal, started, 5000);
     const outs = await Promise.all(jobs.map((j, i) => once(j).catch(e => { if (e.message === 'halted') throw e; return once(j); }).catch(e => { if (e.message === 'halted') throw e; return 'החלק הזה לא הושלם גם בניסיון שני: ' + e.message; }).then(o => { state[i] = true; if (state.some(x => !x)) progress(); return o; })));
     if (halted(started)) throw new Error('halted');
     const pack = jobs.map((j, i) => `===== ${AGENTS[j.id].name} =====\n${String(outs[i]).slice(0, 12000)}`).join('\n\n');
@@ -161,7 +161,7 @@ export function startMission(run, announce, slug, title, goal, assignments) {
     let review = '';
     await run([{ role: 'user', content: `המטרה: ${goal || title}\n\n${pack}` }],
       'את המבקרת של הצוות. תפקידך לחלוק על העבודה: מצאי טענות בלי ביסוס, סתירות בין הסוכנות, הנחות אופטימיות מדי, סיכונים שלא הוזכרו ונתונים חסרים. כתבי בעברית רשימה קצרה וממוקדת של עד שמונה נקודות, מהחמורה לקלה. אל תחזרי על מה שתקין.',
-      [], 1400, (t) => { review += t; }).catch(() => {});
+      [], 2500, (t) => { review += t; }).catch(() => {});
     if (halted(started)) throw new Error('halted');
     let merged = '';
     await run([{ role: 'user', content: `המטרה: ${goal || title}\n\n${pack}\n\n===== הערות המבקרת =====\n${review.slice(0, 5000)}` }],
@@ -170,7 +170,7 @@ export function startMission(run, announce, slug, title, goal, assignments) {
 שורה ראשונה: SUMMARY: ואחריה שניים עד שלושה משפטים קצרים עם המסקנה וההמלצה, מתאימים להקראה בקול, בלי כתובות אינטרנט.
 שורה שנייה: ---
 משם והלאה: הדוח כקטע HTML פשוט בלבד (תגיות h2, h3, p, ul, li, table, tr, th, td, strong, a). בלי html, head, body, style או script. התחילי במסקנה ובהמלצה, אחר כך פרק לכל תחום, פרק "הסתייגויות וסיכונים" מתוך הערות המבקרת, ובסוף צעדים הבאים. שמרי על הקישורים למקורות.`,
-      [], 7000, (t) => { merged += t; });
+      [], 10000, (t) => { merged += t; });
     const cut = merged.indexOf('---');
     const head = cut >= 0 ? merged.slice(0, cut) : '';
     const body = clean((cut >= 0 ? merged.slice(cut + 3) : merged).replace(/^```html?|```$/gim, '').trim());
