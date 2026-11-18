@@ -10,6 +10,10 @@
 # report of the computer, sleep, working in Chrome (list tabs, go to an address, read the page, click by
 # text, fill a field; never password or card fields), and running a terminal command. A command is sent
 # here only after the owner said yes out loud to that exact command; sudo and Luka's own folder are refused.
+# Version 6 adds: a mouse click at a point on the main screen, making a folder and moving a file (inside Desktop,
+# Documents and Downloads only, never over an existing file), locking the screen, and three things that are sent
+# here only after the owner said yes out loud: downloading a file into Downloads (it is never opened or run),
+# restarting and shutting down.
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 DIR="$HOME/.luka"
 SERVER="$(cat "$DIR/server" 2>/dev/null)"
@@ -245,6 +249,46 @@ page_js() {  # which, base64-json
   chrome_do js "${JS_PRE/__B64__/$2}$body"
 }
 
+click_at() {  # "0.52,0.31" = fractions of the main screen's width and height, as seen in the screenshot
+  local fx="${1%%,*}" fy="${1##*,}"
+  [[ "$fx" =~ ^0?\.[0-9]{1,4}$|^[01]$ ]] && [[ "$fy" =~ ^0?\.[0-9]{1,4}$|^[01]$ ]] || { echo "לא בוצע: נקודה לא תקינה."; return; }
+  local size; size="$(/usr/bin/osascript -l JavaScript -e 'ObjC.import("AppKit"); var f = $.NSScreen.mainScreen.frame; Math.round(f.size.width) + "," + Math.round(f.size.height)' 2>/dev/null)"
+  [[ "$size" =~ ^[0-9]+,[0-9]+$ ]] || { echo "לא בוצע: לא הצלחתי לקרוא את גודל המסך."; return; }
+  local x y; x="$(/usr/bin/awk -v a="$fx" -v b="${size%%,*}" 'BEGIN{printf "%d", a*b}')"; y="$(/usr/bin/awk -v a="$fy" -v b="${size##*,}" 'BEGIN{printf "%d", a*b}')"
+  /usr/bin/osascript -e "tell application \"System Events\" to click at {$x, $y}" >/dev/null 2>&1 && echo "נלחץ בנקודה $x,$y במסך." || echo "$NEED_AX"
+}
+allowed_dir() {  # prints the real path of an existing folder inside Desktop / Documents / Downloads, or nothing
+  local rel="$1"
+  case "$rel" in *..*|/*) return 1 ;; esac
+  case "$rel" in Desktop|Documents|Downloads|Desktop/*|Documents/*|Downloads/*) ;; *) return 1 ;; esac
+  [ -d "$HOME/$rel" ] && [ ! -L "$HOME/$rel" ] || return 1
+  local real; real="$(cd "$HOME/$rel" 2>/dev/null && pwd -P)"
+  case "$real" in "$HOME/Desktop"*|"$HOME/Documents"*|"$HOME/Downloads"*) printf '%s' "$real" ;; *) return 1 ;; esac
+}
+make_folder() {
+  local rel="$1"
+  case "$rel" in *..*|/*) echo "לא נוצר: נתיב לא תקין."; return ;; esac
+  case "$rel" in Desktop/*|Documents/*|Downloads/*) ;; *) echo "לא נוצר: אפשר ליצור תיקיות רק בתוך Desktop, Documents או Downloads."; return ;; esac
+  allowed_dir "$(/usr/bin/dirname "$rel")" >/dev/null || { echo "לא נוצר: התיקייה שמעליה לא קיימת."; return; }
+  [ -e "$HOME/$rel" ] && { echo "כבר קיים שם פריט בשם הזה."; return; }
+  /bin/mkdir "$HOME/$rel" 2>/dev/null && echo "התיקייה נוצרה: $rel" || echo "לא נוצר: שגיאה."
+}
+move_file() {  # file, destination folder
+  local src; src="$(safe_path "$1")" || { echo "לא הועבר: הקובץ לא נמצא או מחוץ לתיקיות המותרות."; return; }
+  local dst; dst="$(allowed_dir "$2")" || { echo "לא הועבר: תיקיית היעד לא קיימת או מחוץ לתיקיות המותרות."; return; }
+  local name; name="$(/usr/bin/basename "$src")"
+  [ -e "$dst/$name" ] && { echo "לא הועבר: בתיקיית היעד כבר יש קובץ בשם הזה, ואיני דורסת קבצים."; return; }
+  /bin/mv -n "$src" "$dst/$name" 2>/dev/null && echo "הקובץ הועבר אל $2/$name" || echo "לא הועבר: שגיאה."
+}
+download_file() {  # url, file name. The owner approved this exact download out loud. The file is saved, never opened or run.
+  local url="$1" name="$2"
+  case "$url" in https://*) ;; *) echo "לא הורד: רק כתובות https."; return ;; esac
+  [[ "$name" =~ ^[A-Za-z0-9._\ -]{1,80}$ ]] && [[ "$name" != .* ]] || { echo "לא הורד: שם קובץ לא תקין."; return; }
+  [ -e "$HOME/Downloads/$name" ] && { echo "לא הורד: כבר יש בהורדות קובץ בשם הזה."; return; }
+  if /usr/bin/curl -fsSL --max-time 180 --max-filesize 314572800 -o "$HOME/Downloads/$name" "$url" 2>/dev/null; then
+    echo "הקובץ הורד אל Downloads/$name ($(/usr/bin/du -h "$HOME/Downloads/$name" | /usr/bin/awk '{print $1}')). לא פתחתי אותו."
+  else /bin/rm -f "$HOME/Downloads/$name"; echo "לא הורד: ההורדה נכשלה, או שהקובץ גדול מ-300 מגה."; fi
+}
 KEYS_RE='^((cmd|shift|alt|ctrl)[+]){0,3}([a-z0-9,./=-]|enter|tab|space|delete|escape|left|right|up|down|home|end|pageup|pagedown|f11)$'
 handle() {  # type, a1, a2
   case "$1" in
@@ -290,6 +334,17 @@ handle() {  # type, a1, a2
       if [[ "$2" =~ ^[A-Za-z0-9\ ._-]{1,40}$ ]]; then
         /usr/bin/osascript -e "tell application \"$2\" to quit" >/dev/null 2>&1 && echo "האפליקציה $2 נסגרה." || echo "לא נסגר: לא נמצאה אפליקציה פתוחה בשם $2."
       else echo "לא נסגר: שם אפליקציה לא תקין."; fi ;;
+    click) click_at "$2" ;;
+    mkdir) make_folder "$2" ;;
+    move) move_file "$2" "$3" ;;
+    download) download_file "$2" "$3" ;;
+    lock) /usr/bin/osascript -e 'tell application "System Events" to keystroke "q" using {control down, command down}' >/dev/null 2>&1 && echo "המסך ננעל." || echo "$NEED_AX" ;;
+    power)
+      case "$2" in
+        restart) echo "המחשב מופעל מחדש."; ( sleep 3; /usr/bin/osascript -e 'tell application "System Events" to restart' >/dev/null 2>&1 ) & ;;
+        shutdown) echo "המחשב נכבה."; ( sleep 3; /usr/bin/osascript -e 'tell application "System Events" to shut down' >/dev/null 2>&1 ) & ;;
+        *) echo "לא בוצע." ;;
+      esac ;;
     sleep) echo "המחשב עובר למצב שינה."; ( sleep 2; /usr/bin/pmset sleepnow >/dev/null 2>&1 ) & ;;
     shell) run_shell "$3" ;;
     tabs) chrome_do tabs - ;;
@@ -306,7 +361,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 5" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 6" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"

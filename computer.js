@@ -8,6 +8,7 @@ export const macCanReadFiles = () => macOnline() && macVersion >= 2;
 export const macV3 = () => macOnline() && macVersion >= 3;
 export const macV4 = () => macOnline() && macVersion >= 4;
 export const macV5 = () => macOnline() && macVersion >= 5;
+export const macV6 = () => macOnline() && macVersion >= 6;
 
 export function computerOnline() { return Date.now() - lastSeen < 12000 || Date.now() - macSeen < 45000; }
 export function takeAll() {
@@ -198,3 +199,35 @@ export function pageFillOnMac(field, value) {
 }
 
 export function flushMac() { macQueue.length = 0; queue.length = 0; }
+
+// Helper version 6+: a mouse click at a point of the screen, folders, moving files, locking, and (only after
+// the owner approved out loud) downloading a file, restarting and shutting down.
+const OLD6 = 'לא בוצע: צריך לעדכן את העוזר במק לגרסה 6 (להריץ שוב את פקודת ההתקנה).';
+export function clickOnMac(x, y) {
+  if (!(Number(x) >= 0 && Number(x) <= 1 && Number(y) >= 0 && Number(y) <= 1)) return 'לא בוצע: x ו-y צריכים להיות שברים בין 0 ל-1 (החלק מרוחב ומגובה צילום המסך).';
+  const fx = Math.min(0.9999, Number(x)), fy = Math.min(0.9999, Number(y));
+  return macV6() ? ask({ type: 'click', what: fx.toFixed(4) + ',' + fy.toFixed(4) }) : OLD6;
+}
+const okDir = (p) => /^(Desktop|Documents|Downloads)(\/|$)/.test(p) && !/\.\./.test(p);
+export function mkdirOnMac(path) { const p = clean(path); if (!okPath(p)) return 'לא בוצע: הנתיב צריך להתחיל ב-Desktop/, Documents/ או Downloads/.'; return macV6() ? ask({ type: 'mkdir', what: p }) : OLD6; }
+export function moveOnMac(path, toFolder) {
+  const p = clean(path), d = clean(toFolder).replace(/\/$/, '');
+  if (!okPath(p) || !okDir(d)) return 'לא בוצע: הקובץ והתיקייה צריכים להיות בתוך Desktop, Documents או Downloads.';
+  return macV6() ? ask({ type: 'move', what: p, label: d }) : OLD6;
+}
+export function lockMac() { return macV6() ? ask({ type: 'lock', what: '-' }) : OLD6; }
+export function powerMac(action) {
+  const a = clean(action); if (!/^(restart|shutdown)$/.test(a)) return 'לא בוצע: פעולה לא מוכרת.';
+  if (!macV6()) return OLD6;
+  if (!confirmed('power:' + a)) return ASK(a === 'restart' ? 'הפעלה מחדש של המחשב (חלונות פתוחים ועבודה שלא נשמרה ייסגרו)' : 'כיבוי המחשב (חלונות פתוחים ועבודה שלא נשמרה ייסגרו, ואחריו לא אוכל לפעול בו עד שיודלק)');
+  return ask({ type: 'power', what: a });
+}
+export function downloadOnMac(url, name) {
+  const u = clean(url), n = clean(name);
+  if (!/^https:\/\/[^\s]+$/.test(u)) return 'לא בוצע: רק כתובות https.';
+  if (!/^[A-Za-z0-9._ -]{1,80}$/.test(n) || /^\./.test(n)) return 'לא בוצע: שם הקובץ צריך להיות באנגלית, בלי תווים מיוחדים.';
+  if (/\.(app|dmg|pkg|sh|command|scpt|workflow|exe|bat|jar)$/i.test(n)) return 'לא בוצע: איני מורידה תוכנות וקובצי הפעלה. את אלה אדוני מוריד בעצמו.';
+  if (!macV6()) return OLD6;
+  if (!confirmed('download:' + u + '|' + n)) return ASK(`הורדת הקובץ ${n} מהכתובת ${u} אל תיקיית ההורדות במחשב (אמרי לו מאיזה אתר זה)`);
+  return ask({ type: 'download', what: u, label: n }, 200000);
+}

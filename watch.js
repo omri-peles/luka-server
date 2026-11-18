@@ -88,10 +88,24 @@ async function computerHealth() {
   if (c && Number(c[1]) < 8) { hot++; if (hot >= 2) { const top = (t.match(/האפליקציות הכבדות:\s*([^,\n]+)/) || [])[1] || ''; await once('cpu', `אדוני, המעבד של המחשב עמוס מאוד כבר כמה דקות${top ? '. הכבדה ביותר: ' + top.trim() : ''}.`); } } else hot = 0;
 }
 
+async function topics() {
+  const s = load(); const due = (s.watches || []).filter(x => Date.now() - (x.last || 0) > x.every * 3600000).slice(0, 1);
+  for (const x of due) {
+    x.last = Date.now(); save();
+    const out = await askAgent(agentRun, 'research', `אדוני ביקש שתעקבי אחרי: ${x.what}\n${x.summary ? 'מה שמצאת בבדיקה הקודמת: ' + x.summary : 'זו הבדיקה הראשונה.'}\nבדקי מה המצב עכשיו. אם זו כתובת של דף, קראי אותו. החזירי בדיוק שני חלקים: שורה ראשונה שמתחילה ב-STATE: עם תיאור המצב הנוכחי במשפט או שניים (לשמירה). אחריה שורה שמתחילה ב-NEWS: עם מה שהשתנה מאז הבדיקה הקודמת, בשניים עד שלושה משפטים להקראה בקול, או המילים אין חדש אם לא השתנה דבר של ממש.`);
+    const st = (out.match(/STATE:\s*([\s\S]*?)(?:\nNEWS:|$)/) || [])[1], nw = (out.match(/NEWS:\s*([\s\S]*)/) || [])[1];
+    if (!st) continue;
+    const first = !x.summary; x.summary = st.replace(/\s+/g, ' ').trim().slice(0, 700); save();
+    if (first || !nw || /אין חדש/.test(nw.slice(0, 40))) continue;
+    await tell(`אדוני, עדכון במעקב אחרי ${x.what.slice(0, 80)}: ${nw.replace(/\s+/g, ' ').trim().slice(0, 500)}`);
+  }
+}
+
 const safe = (f, name) => f().catch(e => console.error('watch', name, e.message));
 setTimeout(() => {
   setInterval(() => safe(beforeMeetings, 'meetings'), 5 * 60000).unref();
   setInterval(() => safe(mailMeetings, 'mail'), 10 * 60000).unref();
   setInterval(() => safe(computerHealth, 'computer'), 5 * 60000).unref();
+  setInterval(() => safe(topics, 'topics'), 20 * 60000).unref();
   safe(mailMeetings, 'mail');
 }, 90000).unref();

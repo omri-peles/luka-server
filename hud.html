@@ -553,8 +553,9 @@ function graphicCard(c){
     return el;
   }
   if(c.kind === "agents"){
-    const el = frame("person", String(c.count != null ? c.count : items.length));
-    for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot live")); const two = E("div", "two"); two.appendChild(E("div", "", it.name)); if(it.task) two.appendChild(E("div", "", it.task)); r.appendChild(two); el.appendChild(r); }
+    document.querySelectorAll("#cards .agents").forEach(closeCard);
+    const el = frame("person", String(c.count != null ? c.count : items.length)); el.classList.add("agents");
+    for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot " + (it.done ? "ok" : "live"))); const two = E("div", "two"); two.appendChild(E("div", "", it.name)); if(it.task) two.appendChild(E("div", "", it.task)); r.appendChild(two); el.appendChild(r); }
     return el;
   }
   if(c.kind === "graph"){

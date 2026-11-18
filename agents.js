@@ -5,7 +5,7 @@
 import fs from 'fs';
 import crypto from 'crypto';
 import path from 'path';
-import { load } from './store.js';
+import { load, save } from './store.js';
 import { publishPage, siteUrl, pageExists } from './sites.js';
 import { isConnected, agendaText } from './google.js';
 import { runTool } from './brain.js';
@@ -150,7 +150,11 @@ export function startMission(run, announce, slug, title, goal, assignments) {
   busy++; const started = Date.now();
   const names = jobs.map(j => AGENTS[j.id].name);
   (async () => {
-    const outs = await Promise.all(jobs.map(j => work(run, j.id, j.task, goal, started, 3500).catch(e => { if (e.message === 'halted') throw e; return 'החלק הזה לא הושלם: ' + e.message; })));
+    // each agent gets one more try if it fails, and the screen is told as each one finishes
+    const state = jobs.map(() => false);
+    const progress = () => { try { const s = load(); if (!Array.isArray(s.updates)) s.updates = []; s.updates.push({ id: Date.now().toString(36), text: '', at: Date.now(), card: { kind: 'agents', count: state.filter(x => !x).length + 1, items: [...jobs.map((j, i) => ({ name: AGENTS[j.id].name, task: j.task.slice(0, 60), done: state[i] })), { name: 'המבקרת', task: '' }] } }); save(); } catch (e) {} };
+    const once = (j) => work(run, j.id, j.task, goal, started, 3500);
+    const outs = await Promise.all(jobs.map((j, i) => once(j).catch(e => { if (e.message === 'halted') throw e; return once(j); }).catch(e => { if (e.message === 'halted') throw e; return 'החלק הזה לא הושלם גם בניסיון שני: ' + e.message; }).then(o => { state[i] = true; if (state.some(x => !x)) progress(); return o; })));
     if (halted(started)) throw new Error('halted');
     const pack = jobs.map((j, i) => `===== ${AGENTS[j.id].name} =====\n${String(outs[i]).slice(0, 12000)}`).join('\n\n');
     // the reviewer: a second opinion that argues against the work before it reaches the owner

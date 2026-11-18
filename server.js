@@ -154,6 +154,11 @@ app.post('/chat', async (req, res) => {
 
 // ---------- TABLET PAGE served from this server (no keys needed in the browser) ----------
 app.get('/luka', (_req, res) => res.sendFile(path.resolve('./hud.html')));
+// Music Luka composed (random, unguessable ids). Tablet side only.
+app.get('/tracks/:id', async (req, res) => {
+  try { const m = await import('./media.js'); const p = m.trackPath(req.params.id); if (!p || !fs.existsSync(p)) return res.status(404).type('text/plain').send('Not found'); res.type('audio/mpeg').sendFile(p); }
+  catch (e) { res.status(404).type('text/plain').send('Not found'); }
+});
 // Luka as an installable app (computer and tablet): the manifest and the icon. Tablet side only.
 app.get('/luka/app.webmanifest', (_req, res) => res.type('application/manifest+json').send(JSON.stringify({
   id: '/luka', name: 'לוקה', short_name: 'לוקה', lang: 'he', dir: 'rtl', start_url: '/luka', scope: '/luka',
