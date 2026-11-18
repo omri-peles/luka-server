@@ -26,7 +26,7 @@ import { AGENT_IDS, startMission, askAgent, logAction, actionLog, halt } from '.
 import { clearPending } from './gate.js';
 import { recentNotes, setRoutine, routinesText, setTranslate, translateTo } from './notes.js';
 import { debate, knowledgeMap, selfReview } from './minds.js';
-import './watch.js';
+import { diag } from './watch.js';
 import { setStyle, styleLine, goals, goalsCard, watches } from './notes.js';
 import { videoOn, musicOn, watchVideo, makeMusic } from './media.js';
 import { macV6, clickOnMac, mkdirOnMac, moveOnMac, lockMac, powerMac, downloadOnMac } from './computer.js';
@@ -199,6 +199,7 @@ const MEDIA_TOOLS = [
 const LIFE_TOOLS = [
   { name: 'goals', description: 'היעדים של אדוני וההתקדמות בהם לאורך זמן (למשל להגיע למאה הזמנות בחודש, לרדת חמישה קילו). add מוסיף יעד, progress רושם עדכון התקדמות, done מסמן שהושג, remove מסיר, show מציג הכול. השתמשי בזה כשהוא מדבר על מטרה שהוא רוצה להשיג או מספר על התקדמות בה.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'progress', 'done', 'remove', 'show'] }, title: str('שם היעד'), target: str('היעד המדיד, אם יש'), note: str('ל-progress: מה התקדם') }, required: ['action'] } },
   { name: 'watch_topic', description: 'מעקב מתמשך אחרי נושא, מוצר, מחיר, מתחרה או דף אינטרנט: את בודקת כל כמה שעות ומעדכנת את אדוני רק כשמשהו השתנה באמת. add מוסיף (what: תיאור מדויק או כתובת), remove מסיר, list מציג. השתמשי בזה כשהוא אומר תעקבי אחרי, תעדכני אותי כש, תבדקי כל יום.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'remove', 'list'] }, what: str('על מה לעקוב'), every_hours: { type: 'number', description: 'כל כמה שעות לבדוק, 3 עד 168, ברירת מחדל 24' } }, required: ['action'] } },
+  { name: 'run_check', description: 'בדיקה טכנית של היוזמות שלך, בלי להכריז דבר: mail (סיווג המיילים האחרונים), meetings (הכנה לאירוע שמתחיל בעוד כשעה), topics (הנושאים במעקב), media (תוצאת הסרטון או המוזיקה האחרונים). השתמשי בזה רק כשמבקשים ממך במפורש להריץ בדיקה, ומסרי את התוצאה כמו שהיא.', input_schema: { type: 'object', properties: { what: { type: 'string', enum: ['mail', 'meetings', 'topics', 'media'] } }, required: ['what'] } },
   { name: 'set_style', description: 'שינוי סגנון הדיבור שלך באופן קבוע, עד שיבקש אחרת: רגיל, מקצועי, הומוריסטי או רגוע.', input_schema: { type: 'object', properties: { style: { type: 'string', enum: ['רגיל', 'מקצועי', 'הומוריסטי', 'רגוע'] } }, required: ['style'] } },
   { name: 'manage_list', description: 'רשימות מנוהלות של אדוני: משימות, קניות או כל רשימה אחרת בשם שיבחר. add מוסיף פריטים, done מסמן כבוצע, remove מסיר, show מציג (בלי שם: אילו רשימות קיימות), clear_done מנקה את מה שבוצע, clear מוחק את כל הרשימה. השתמשי בזה כשהוא אומר להוסיף לרשימה, מה ברשימה, או שסיים משהו.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'done', 'remove', 'show', 'clear_done', 'clear'] }, list: str('שם הרשימה, למשל משימות או קניות'), items: { type: 'array', items: { type: 'string' }, description: 'הפריטים' } }, required: ['action'] } },
   { name: 'recall_past_conversations', description: 'חיפוש לפי משמעות ביומן כל השיחות הקודמות עם אדוני (טאבלט, טלפון, וואטסאפ), גם מה שנאמר מזמן ובמילים אחרות. השתמשי בזה כשהוא מתייחס למשהו שדיברתם עליו בעבר ואינו מופיע בשיחה הנוכחית או בזיכרון, או שואל מה אמר, מה החליט או מתי דיברתם על משהו.', input_schema: { type: 'object', properties: { query: str('מה לחפש, בתיאור חופשי') }, required: ['query'] } },
@@ -466,6 +467,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'ask_agent' ? await askAgent(agentRun, inp.agent, inp.task)
             : b.name === 'goals' ? (r => { if (opts.control) { const c = goalsCard(); if (c) { try { opts.control({ card: c }); } catch (e) {} } } return r; })(goals(inp.action, inp.title, inp.target, inp.note))
             : b.name === 'watch_topic' ? watches(inp.action, inp.what, inp.every_hours)
+            : b.name === 'run_check' ? await diag(inp.what)
             : b.name === 'set_style' ? setStyle(inp.style)
             : b.name === 'watch_video' ? await watchVideo(inp.url, inp.question)
             : b.name === 'make_music' ? makeMusic(inp.description, inp.title, inp.seconds, inp.instrumental)
