@@ -196,6 +196,8 @@ app.get('/conversation', (req, res) => {
 // ---------- TABLET EARS: speech-to-text for the tablet page (see ears.js) ----------
 mountEars(app, authOk);
 mountEyes(app, authOk);
+// Calls to other people on the owner's request (new routes only; his own call flow is untouched).
+import('./outcall.js').then(m => m.mountOutcall(app)).catch(e => console.error('outcall', e.message));
 // Optional tablet extras are loaded so that a fault in any of them can never stop the server
 // (and with it the phone agent) from starting.
 import('./drive.js').then(m => m.mountDrive(app)).catch(e => console.error('drive module', e.message));

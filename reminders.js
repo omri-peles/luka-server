@@ -28,9 +28,10 @@ export function listReminders() {
   const l = list().slice().sort((a, b) => a.at - b.at);
   return l.length ? l.map(r => `- ${when(r.at)}${r.repeat ? ' (כל יום)' : ''}, ${HOW[r.how] || HOW.screen}${r.task ? ', משימה' : ''}: ${r.text}`).join('\n') : 'אין תזכורות פתוחות.';
 }
-export function cancelReminder(query) {
+export function cancelReminder(query, all) {
   const q = (query || '').toString().trim(); const l = list();
   const hit = l.filter(r => q && r.text.includes(q));
+  if (all && hit.length) { for (const h of hit) l.splice(l.indexOf(h), 1); save(); return `בוטלו ${hit.length} תזכורות: ${hit.map(h => h.text).join('; ')}.`; }
   if (!hit.length) return 'לא נמצאה תזכורת מתאימה. הפתוחות:\n' + listReminders();
   if (hit.length > 1) return 'נמצאו כמה תזכורות מתאימות, צריך ניסוח מדויק יותר:\n' + hit.map(r => `- ${when(r.at)}: ${r.text}`).join('\n');
   l.splice(l.indexOf(hit[0]), 1); save();

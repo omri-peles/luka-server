@@ -347,6 +347,12 @@ handle() {  # type, a1, a2
       if [[ "$2" =~ ^[A-Za-z0-9\ ._-]{1,40}$ ]]; then
         /usr/bin/osascript -e "tell application \"$2\" to quit" >/dev/null 2>&1 && echo "האפליקציה $2 נסגרה." || echo "לא נסגר: לא נמצאה אפליקציה פתוחה בשם $2."
       else echo "לא נסגר: שם אפליקציה לא תקין."; fi ;;
+    spotify)
+      if [[ "$2" =~ ^spotify:(track|album|playlist|artist):[A-Za-z0-9]{22}$ ]]; then
+        if [ -d "/Applications/Spotify.app" ] || [ -d "$HOME/Applications/Spotify.app" ]; then
+          /usr/bin/osascript -e "tell application \"Spotify\" to play track \"$2\"" >/dev/null 2>&1 && echo "מתנגן בספוטיפיי." || echo "לא הצלחתי להפעיל את ספוטיפיי. ייתכן שצריך לאשר למק לשלוט באפליקציה Spotify."
+        else echo "לא בוצע: האפליקציה Spotify לא מותקנת במחשב."; fi
+      else echo "לא בוצע: מזהה לא תקין."; fi ;;
     click) click_at "$2" ;;
     mkdir) make_folder "$2" ;;
     move) move_file "$2" "$3" ;;
@@ -374,7 +380,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 6" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 7" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"

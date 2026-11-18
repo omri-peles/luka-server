@@ -231,3 +231,10 @@ export function downloadOnMac(url, name) {
   if (!confirmed('download:' + u + '|' + n)) return ASK(`הורדת הקובץ ${n} מהכתובת ${u} אל תיקיית ההורדות במחשב (אמרי לו מאיזה אתר זה)`);
   return ask({ type: 'download', what: u, label: n }, 200000);
 }
+
+// Helper version 7+: start a song, album, playlist or artist in the Spotify app on the Mac.
+export const macV7 = () => macOnline() && macVersion >= 7;
+export function spotifyOnMac(uri) {
+  const u = String(uri || '').trim(); if (!/^spotify:(track|album|playlist|artist):[A-Za-z0-9]{22}$/.test(u)) return 'לא בוצע: מזהה לא תקין.';
+  return macV7() ? ask({ type: 'spotify', what: u }, 15000) : 'לא בוצע: צריך לעדכן את העוזר במק לגרסה 7 (להריץ שוב את פקודת ההתקנה).';
+}
