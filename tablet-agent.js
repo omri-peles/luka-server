@@ -84,7 +84,7 @@ const EXTRA_TOOLS = [
 
 const str = (d) => ({ type: 'string', description: d });
 const REMINDER_TOOLS = [
-  { name: 'set_reminder', description: 'קביעת תזכורת או טיימר. חשבי בעצמך כמה דקות מעכשיו (לפי השעון שלמעלה) ומסרי את המספר. כשהזמן מגיע את אומרת את התזכורת במסך.', input_schema: { type: 'object', properties: { in_minutes: { type: 'number', description: 'בעוד כמה דקות מעכשיו' }, text: str('על מה להזכיר, במילים של אדוני') }, required: ['in_minutes', 'text'] } },
+  { name: 'set_reminder', description: 'קביעת תזכורת, טיימר או משימה מתוזמנת. חשבי בעצמך כמה דקות מעכשיו (לפי השעון שלמעלה) ומסרי את המספר. how קובע איך זה מגיע לאדוני: call כשהוא מבקש שתתקשרי אליו או שתעירי אותו (השיחה יוצאת בדיוק בשעה שביקש, גם בלילה), whatsapp כשהוא מבקש הודעה, screen בכל מקרה אחר (נאמר במסך, ואם המסך סגור נשלח בוואטסאפ). repeat=daily כשהוא מבקש כל יום. task=true כשזה לא משפט להזכיר אלא משהו שעלייך לבצע באותה שעה ולמסור את התוצאה, למשל סיכום מכירות, תדריך או בדיקת מיילים: אז text הוא הבקשה עצמה.', input_schema: { type: 'object', properties: { in_minutes: { type: 'number', description: 'בעוד כמה דקות מעכשיו' }, text: str('על מה להזכיר, במילים של אדוני, או הבקשה לביצוע כש-task=true'), how: { type: 'string', enum: ['screen', 'call', 'whatsapp'] }, repeat: { type: 'string', enum: ['none', 'daily'] }, task: { type: 'boolean' } }, required: ['in_minutes', 'text'] } },
   { name: 'list_reminders', description: 'רשימת התזכורות הפתוחות.', input_schema: { type: 'object', properties: {} } },
   { name: 'cancel_reminder', description: 'ביטול תזכורת לפי מילים מתוכה.', input_schema: { type: 'object', properties: { text: str('מילים מתוך התזכורת') }, required: ['text'] } }
 ];
@@ -388,7 +388,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'open_file_on_computer' ? await openFileOnMac(inp.path)
             : b.name === 'control_music' ? await mediaOnMac(inp.action)
             : b.name === 'turn_off_computer_display' ? await displayOffOnMac()
-            : b.name === 'set_reminder' ? (r => (pop('reminders').catch(() => {}), r))(setReminder(inp.in_minutes, inp.text))
+            : b.name === 'set_reminder' ? (r => (pop('reminders').catch(() => {}), r))(setReminder(inp.in_minutes, inp.text, inp.how, inp.repeat, inp.task))
             : b.name === 'list_reminders' ? (pop('reminders').catch(() => {}), listReminders())
             : b.name === 'cancel_reminder' ? cancelReminder(inp.text)
             : b.name === 'shop_orders' ? (pop('orders', inp).catch(() => {}), await shopifyOrders(inp.days))
