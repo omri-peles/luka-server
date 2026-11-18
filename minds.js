@@ -4,6 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import { memoryText } from './memory.js';
+import { askAgent } from './agents.js';
 
 const KEY = () => process.env.ANTHROPIC_API_KEY;
 const WEB = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
@@ -26,11 +27,12 @@ export async function debate(run, question, context) {
   const rules = 'כתבי בעברית עד חמש נקודות קצרות וחדות, מהחזקה לחלשה. עובדות ומספרים רק אם הם ידועים או הופיעו בחיפוש; אל תמציאי. בלי הקדמות.';
   try {
     const work = Promise.all([
-      side(run, 'את הסוכנת שבעד. תפקידך לבנות את הטיעון החזק ביותר בעד ההחלטה. ' + rules, base),
-      side(run, 'את הסוכנת שנגד. תפקידך לבנות את הטיעון החזק ביותר נגד ההחלטה: סיכונים, עלויות נסתרות, חלופות טובות יותר. ' + rules, base)]);
+      askAgent(run, 'research', 'בדיון הזה את הצד שבעד. בני את הטיעון החזק ביותר בעד ההחלטה. ' + rules + '\n' + base),
+      askAgent(run, 'research', 'בדיון הזה את הצד שנגד. בני את הטיעון החזק ביותר נגד ההחלטה: סיכונים, עלויות נסתרות, חלופות טובות יותר. ' + rules + '\n' + base)]);
     const got = await Promise.race([work, new Promise(res => setTimeout(() => res(null), 80000))]);
     if (!got) return 'הדיון לוקח יותר מדי זמן לתשובה מיידית. למשימה כזו השתמשי ב-delegate_to_agents.';
     const [pro, con] = got;
+    if (String(pro).trim().length < 40 || String(con).trim().length < 40) return 'הדיון לא הושלם: אחת הסוכנות לא החזירה טיעונים. אמרי זאת לאדוני ואל תמציאי טיעונים בשמן.';
     const verdict = await quick('את השופטת בדיון. קיבלת טיעוני בעד ונגד. כתבי בעברית הכרעה של שלושה עד ארבעה משפטים: איזה צד חזק יותר ולמה, מה התנאי שבו ההכרעה מתהפכת, ומה הצעד הבא. אל תוסיפי עובדות חדשות.', `${base}\n\n=== בעד ===\n${pro}\n\n=== נגד ===\n${con}`, 600, 'claude-sonnet-5-5');
     return `בעד:\n${pro.slice(0, 2500)}\n\nנגד:\n${con.slice(0, 2500)}\n\nההכרעה:\n${verdict}`;
   } catch (e) { return 'הדיון לא הושלם: ' + e.message; }
