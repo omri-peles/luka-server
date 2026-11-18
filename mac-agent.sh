@@ -6,6 +6,10 @@
 # (never overwrites), and move a file to the Trash. It cannot run arbitrary commands and it
 # never updates itself. It can also take one picture of the screen when Luka is asked to look at it,
 # and it refuses to read files that hold keys or passwords.
+# Version 5 adds, at the owner's request: keyboard (type text, press keys), quitting an app, a status
+# report of the computer, sleep, working in Chrome (list tabs, go to an address, read the page, click by
+# text, fill a field; never password or card fields), and running a terminal command. A command is sent
+# here only after the owner said yes out loud to that exact command; sudo and Luka's own folder are refused.
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 DIR="$HOME/.luka"
 SERVER="$(cat "$DIR/server" 2>/dev/null)"
@@ -132,6 +136,116 @@ read_file() {  # path relative to the home folder, only inside Desktop / Documen
   esac
 }
 
+b64() { printf '%s' "$1" | /usr/bin/base64 -D 2>/dev/null; }
+NEED_AX="לא בוצע: המק לא מרשה לי להקיש. צריך לאשר ל-bash גישה ב'הגדרות המערכת > פרטיות ואבטחה > נגישות'."
+type_text() {  # pastes the text into whatever window is in front (keeps Hebrew intact); puts the clipboard back afterwards
+  local t; t="$(b64 "$1")"; [ -z "$t" ] && { echo "לא בוצע: אין טקסט."; return; }
+  local old; old="$(/usr/bin/pbpaste 2>/dev/null)"
+  printf '%s' "$t" | /usr/bin/pbcopy
+  if /usr/bin/osascript -e 'tell application "System Events" to keystroke "v" using command down' >/dev/null 2>&1; then
+    sleep 0.4; printf '%s' "$old" | /usr/bin/pbcopy; echo "הטקסט הוקלד בחלון הפעיל."
+  else printf '%s' "$old" | /usr/bin/pbcopy; echo "$NEED_AX"; fi
+}
+press_keys() {  # e.g. enter, tab, cmd+w, cmd+shift+t, ctrl+cmd+f
+  /usr/bin/osascript - "$1" <<'APPLESCRIPT' 2>/dev/null || echo "$NEED_AX"
+on run argv
+  set combo to item 1 of argv
+  set AppleScript's text item delimiters to "+"
+  set parts to text items of combo
+  set k to last item of parts
+  set mods to {}
+  repeat with i from 1 to (count of parts) - 1
+    set m to (item i of parts) as text
+    if m is "cmd" then set end of mods to command down
+    if m is "shift" then set end of mods to shift down
+    if m is "alt" then set end of mods to option down
+    if m is "ctrl" then set end of mods to control down
+  end repeat
+  set codes to {{"enter", 36}, {"tab", 48}, {"space", 49}, {"delete", 51}, {"escape", 53}, {"left", 123}, {"right", 124}, {"down", 125}, {"up", 126}, {"home", 115}, {"end", 119}, {"pageup", 116}, {"pagedown", 121}, {"f11", 103}}
+  tell application "System Events"
+    repeat with c in codes
+      if (item 1 of c) is k then
+        key code (item 2 of c) using mods
+        return "הוקש: " & combo
+      end if
+    end repeat
+    if (length of k) is 1 then
+      keystroke k using mods
+      return "הוקש: " & combo
+    end if
+  end tell
+  return "לא בוצע: מקש לא מוכר."
+end run
+APPLESCRIPT
+}
+stats() {
+  echo "מעבד וזיכרון: $(/usr/bin/top -l 1 -n 0 2>/dev/null | /usr/bin/grep -E 'CPU usage|PhysMem' | /usr/bin/tr '\n' ' ')"
+  echo "דיסק: $(/bin/df -h / 2>/dev/null | /usr/bin/tail -1 | /usr/bin/awk '{print "בשימוש " $3 " מתוך " $2 ", פנוי " $4}')"
+  echo "סוללה: $(/usr/bin/pmset -g batt 2>/dev/null | /usr/bin/grep -Eo '[0-9]+%.*' | /usr/bin/head -1)"
+  echo "פועל מאז: $(/usr/bin/uptime 2>/dev/null | /usr/bin/sed 's/.*up \([^,]*\),.*/\1/')"
+  echo "האפליקציות הכבדות: $(/bin/ps -Aceo pcpu,comm -r 2>/dev/null | /usr/bin/head -6 | /usr/bin/tail -5 | /usr/bin/awk '{printf "%s %s%%, ", $2, $1}')"
+}
+run_shell() {  # the owner approved this exact command out loud before it was sent
+  local c; c="$(b64 "$1")"; [ -z "$c" ] && { echo "לא בוצע: אין פקודה."; return; }
+  case "$c" in *sudo*|*.luka*|*launchctl*|*csrutil*|*spctl*|*"security "*|*.ssh*|*keychain*|*Keychain*) echo "לא בוצע: הפקודה נוגעת בהרשאות, בסודות או בעוזר עצמו, ואיני מריצה פקודות כאלה."; return ;; esac
+  ( cd "$HOME" && /bin/bash -c "$c" 2>&1 & PID=$!; ( sleep 30; /bin/kill -9 $PID 2>/dev/null ) & W=$!; wait $PID 2>/dev/null; echo "[קוד סיום: $?]"; /bin/kill $W 2>/dev/null ) | /usr/bin/head -c 6000
+}
+chrome_do() {  # tabs | goto URL | js BASE64-JSON-ARGS   (acts on the front tab that is not Luka's own page)
+  chrome_running || { echo "לא בוצע: כרום לא פתוח במחשב."; return; }
+  /usr/bin/osascript - "$1" "$2" <<'APPLESCRIPT' 2>&1
+on targetTab()
+  tell application "Google Chrome"
+    repeat with w in (every window)
+      set t to active tab of w
+      if (URL of t) does not contain "railway.app" then return t
+    end repeat
+  end tell
+  return missing value
+end targetTab
+on run argv
+  set act to item 1 of argv
+  set arg to item 2 of argv
+  tell application "Google Chrome"
+    if act is "tabs" then
+      set out to ""
+      repeat with w in (every window)
+        repeat with t in (every tab of w)
+          if (URL of t) does not contain "railway.app" then set out to out & (title of t) & " | " & (URL of t) & linefeed
+        end repeat
+      end repeat
+      if out is "" then return "אין לשוניות פתוחות בכרום."
+      return out
+    end if
+    set t to my targetTab()
+    if t is missing value then return "לא בוצע: אין בכרום לשונית פתוחה מלבד לוקה."
+    if act is "goto" then
+      set URL of t to arg
+      return "הלשונית עברה אל: " & arg
+    end if
+    if act is "js" then
+      try
+        return (execute t javascript arg) as text
+      on error e
+        return "לא בוצע: כרום לא מרשה לי לפעול בתוך הדף. צריך לסמן בכרום בתפריט 'תצוגה > מפתחים > אפשר JavaScript מאירועי Apple'. (" & e & ")"
+      end try
+    end if
+  end tell
+  return "לא בוצע."
+end run
+APPLESCRIPT
+}
+# The page actions are fixed pieces of code; only their data (text to find, value to fill) comes from Luka, as base64.
+JS_PRE='(function(){var d={};try{d=JSON.parse(decodeURIComponent(escape(atob("__B64__"))))}catch(e){};var vis=function(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0};var low=function(s){return String(s||"").replace(/\s+/g," ").trim().toLowerCase()};'
+JS_READ='return (document.title+"\n"+location.href+"\n\n"+document.body.innerText).slice(0,9000)})()'
+JS_CLICK='var q=low(d.text),best=null;var els=document.querySelectorAll("a,button,[role=button],[role=link],[role=tab],[role=menuitem],input[type=submit],input[type=button],summary,label");for(var i=0;i<els.length;i++){var e=els[i];if(!vis(e))continue;var t=low(e.innerText||e.value||e.getAttribute("aria-label")||e.title);if(!t)continue;if(t===q){best=e;break}if(!best&&t.indexOf(q)>=0&&t.length<q.length+60)best=e}if(!best)return "לא נמצא בדף כפתור או קישור עם הטקסט הזה.";best.scrollIntoView({block:"center"});best.click();return "נלחץ: "+low(best.innerText||best.value||best.getAttribute("aria-label")).slice(0,80)})()'
+JS_FILL='var q=low(d.field),hit=null;var els=document.querySelectorAll("input,textarea,select");for(var i=0;i<els.length;i++){var e=els[i];if(!vis(e))continue;var ty=low(e.type);if(ty==="hidden"||ty==="submit"||ty==="button"||ty==="checkbox"||ty==="radio"||ty==="file")continue;var lab="";if(e.id){var l=document.querySelector("label[for=\""+e.id+"\"]");if(l)lab=l.innerText}if(!lab&&e.closest("label"))lab=e.closest("label").innerText;var names=low([lab,e.placeholder,e.getAttribute("aria-label"),e.name,e.id].join(" "));if(names.indexOf(q)>=0){hit=e;break}}if(!hit)return "לא נמצא בדף שדה מתאים.";var ac=low(hit.autocomplete);if(low(hit.type)==="password"||ac.indexOf("cc-")===0||/card|cvv|cvc|password|סיסמ|אשראי/.test(low([hit.name,hit.id,hit.placeholder].join(" "))))return "לא מולא: זה שדה של סיסמה או אמצעי תשלום, ואיני ממלאת שדות כאלה.";hit.focus();var proto=hit.tagName==="TEXTAREA"?HTMLTextAreaElement.prototype:hit.tagName==="SELECT"?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,"value").set.call(hit,String(d.value||""));hit.dispatchEvent(new Event("input",{bubbles:true}));hit.dispatchEvent(new Event("change",{bubbles:true}));return "השדה מולא."})()'
+page_js() {  # which, base64-json
+  [[ "$2" =~ ^[A-Za-z0-9+/=]*$ ]] || { echo "לא בוצע: נתונים לא תקינים."; return; }
+  local body; case "$1" in read) body="$JS_READ" ;; click) body="$JS_CLICK" ;; fill) body="$JS_FILL" ;; *) echo "לא בוצע."; return ;; esac
+  chrome_do js "${JS_PRE/__B64__/$2}$body"
+}
+
+KEYS_RE='^((cmd|shift|alt|ctrl)[+]){0,3}([a-z0-9,./=-]|enter|tab|space|delete|escape|left|right|up|down|home|end|pageup|pagedown|f11)$'
 handle() {  # type, a1, a2
   case "$1" in
     open)
@@ -169,6 +283,20 @@ handle() {  # type, a1, a2
         /usr/bin/curl -fsS --max-time 10 -X POST "$SERVER/camera/frame" -H "x-luka-token: $TOKEN" -H "x-frame-id: $2" -H "x-frame-error: 1" -H "content-type: image/jpeg" --data-binary "x" >/dev/null 2>&1
         echo "לא הצלחתי לצלם את המסך. צריך לאשר הקלטת מסך בהגדרות המק."
       fi ;;
+    stats) stats ;;
+    type) type_text "$3" ;;
+    keys) if [[ "$2" =~ $KEYS_RE ]]; then press_keys "$2"; else echo "לא בוצע: צירוף מקשים לא תקין."; fi ;;
+    quit)
+      if [[ "$2" =~ ^[A-Za-z0-9\ ._-]{1,40}$ ]]; then
+        /usr/bin/osascript -e "tell application \"$2\" to quit" >/dev/null 2>&1 && echo "האפליקציה $2 נסגרה." || echo "לא נסגר: לא נמצאה אפליקציה פתוחה בשם $2."
+      else echo "לא נסגר: שם אפליקציה לא תקין."; fi ;;
+    sleep) echo "המחשב עובר למצב שינה."; ( sleep 2; /usr/bin/pmset sleepnow >/dev/null 2>&1 ) & ;;
+    shell) run_shell "$3" ;;
+    tabs) chrome_do tabs - ;;
+    goto) case "$2" in http://*|https://*) chrome_do goto "$2" ;; *) echo "לא בוצע: כתובת לא תקינה." ;; esac ;;
+    pageread) page_js read "" ;;
+    pageclick) page_js click "$3" ;;
+    pagefill) page_js fill "$3" ;;
     displaysleep) /usr/bin/pmset displaysleepnow >/dev/null 2>&1 && echo "המסך של המחשב כובה." || echo "לא בוצע." ;;
     *) echo "לא בוצע: פעולה לא מוכרת." ;;
   esac
@@ -178,7 +306,7 @@ handle() {  # type, a1, a2
 chrome_running && /usr/bin/osascript -e 'tell application "Google Chrome" to count windows' >/dev/null 2>&1
 
 while true; do
-  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 4" 2>/dev/null)"
+  OUT="$(/usr/bin/curl -fsS --max-time 35 "$SERVER/mac/next" -H "x-luka-token: $TOKEN" -H "x-luka-helper: 5" 2>/dev/null)"
   RC=$?
   if [ $RC -ne 0 ]; then
     CODE="$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$SERVER/mac/next?probe=1" -H "x-luka-token: $TOKEN" 2>/dev/null)"

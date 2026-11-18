@@ -527,6 +527,11 @@ function graphicCard(c){
       r.appendChild(E("span", "dim", String(it.stock))); r.appendChild(E("span", "num", (CUR[it.cur] || "") + nf(it.price))); el.appendChild(r); }
     return el;
   }
+  if(c.kind === "checklist"){
+    const el = frame(c.shopping ? "bag" : "file", String(c.count != null ? c.count : items.length));
+    for(const it of items){ const r = E("div", "fx-row" + (it.done ? " past" : "")); r.appendChild(E("span", "dot " + (it.done ? "ok" : "wait"))); const t = E("span", "grow", it.text); if(it.done) t.style.textDecoration = "line-through"; r.appendChild(t); el.appendChild(r); }
+    return el;
+  }
   if(c.kind === "reminders"){
     const el = frame("clock", String(c.count != null ? c.count : items.length));
     for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot " + (it.mins <= 15 ? "live" : "ok"))); r.appendChild(E("span", "num", it.t)); if(it.wd) r.appendChild(E("span", "dim", it.wd));
