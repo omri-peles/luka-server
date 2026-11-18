@@ -229,7 +229,7 @@
   .r-arc{ stroke:#fff; stroke-width:3.4; stroke-dasharray:70 720; filter:drop-shadow(0 0 7px #bff3ff); animation:spin 6s cubic-bezier(.6,.1,.4,.9) infinite; }
   .r-marks rect{ fill:#7fe9ff; filter:drop-shadow(0 0 4px #7fe9ff); }
   #level{ stroke:#eafcff; stroke-width:2; opacity:.75; filter:drop-shadow(0 0 8px #bff3ff); }
-  .core{ width:26%; height:26%; background:radial-gradient(circle, #fff 0%, rgba(190,245,255,.85) 22%, rgba(90,200,255,.35) 55%, transparent 72%);
+  .core{ width:20%; height:20%; background:radial-gradient(circle, #fff 0%, rgba(190,245,255,.85) 22%, rgba(90,200,255,.35) 55%, transparent 72%);
     box-shadow:0 0 60px 18px rgba(120,215,255,.45); }
   .core::after{ display:none; }
   .face .core{ width:36%; height:36%; background:radial-gradient(circle at 50% 45%, #f3feff 0%, #8fe6ff 46%, #3b8fe8 80%, transparent 100%); }
@@ -250,7 +250,7 @@
   .jv-chips span, .jv-cmd em{ border:1px solid rgba(190,240,255,.7); padding:.1em .6em; font-style:normal; }
   .jv-h{ margin-top:1.2vh; color:#fff; opacity:.9; letter-spacing:.22em; display:flex; align-items:center; gap:.6em; }
   .jv-h::after{ content:""; flex:1; height:1px; background:linear-gradient(90deg,rgba(190,240,255,.7),transparent); }
-  .jv-bar{ display:grid; grid-template-columns:5.2em 1fr 3.6em; align-items:center; gap:.6em; }
+  .jv-bar{ display:grid; grid-template-columns:5.2em 1fr 4.8em; align-items:center; gap:.6em; }
   .jv-bar u{ height:.5em; background:rgba(190,240,255,.16); position:relative; text-decoration:none; }
   .jv-bar u i{ position:absolute; inset:0 auto 0 0; width:0; background:linear-gradient(90deg,#7fe9ff,#fff); box-shadow:0 0 8px #9fefff; transition:width .25s; }
   .jv-bar span:last-child{ text-align:right; color:#fff; }
@@ -1015,7 +1015,7 @@ $("askBtn").addEventListener("click", ()=>{
 
 try{ document.querySelector(".reactor").addEventListener("click", ()=>{ fullScreen(); $("askBtn").click(); }); }catch(e){}
 
-try{ setFace(localStorage.getItem("luka_face") !== "0"); }catch(e){}
+try{ setFace(localStorage.getItem("luka_face") === "1" && localStorage.getItem("luka_look") === "jarvis"); localStorage.setItem("luka_look", "jarvis"); }catch(e){}
 
 // ---------- Startup ----------
 async function pollUpdates(){
@@ -1092,9 +1092,9 @@ if(brainKey && xiKey){ $("setup").querySelector("p").textContent = "הכול מ�
 // ================= JARVIS visuals: particle sphere, live panels (display only, no behaviour) =================
 (function(){
   const cv = document.getElementById("orb"); if(!cv) return; const g = cv.getContext("2d");
-  const N = 1300, P = [];
+  const N = 1700, P = [];
   for(let i=0;i<N;i++){ const u = Math.random()*2-1, t = Math.random()*6.2832, s = Math.sqrt(1-u*u);
-    P.push({ x:s*Math.cos(t), y:u, z:s*Math.sin(t), r:Math.pow(Math.random(), 1.9)*.98 + .02, w:.5+Math.random()*1.4, ph:Math.random()*6.28 }); }
+    P.push({ x:s*Math.cos(t), y:u, z:s*Math.sin(t), r:Math.pow(Math.random(), 1.5)*.98 + .02, w:.7+Math.random()*1.7, ph:Math.random()*6.28 }); }
   let W = 0, a = 0, b = 0, sm = 0, last = performance.now(), fps = 60;
   function size(){ const d = Math.min(2, window.devicePixelRatio || 1); W = Math.max(64, Math.round(cv.clientWidth*d)); cv.width = cv.height = W; }
   size(); addEventListener("resize", size);
@@ -1114,7 +1114,7 @@ if(brainKey && xiKey){ $("setup").querySelector("p").textContent = "הכול מ�
     for(let i=0;i<N;i++){ const p = P[i];
       const rr = p.r*(1 + .05*Math.sin(now/800 + p.ph) + sm*.45*Math.sin(now/95 + p.ph));
       const x = p.x*rr, y = p.y*rr, z = p.z*rr, x1 = x*ca + z*sa, z1 = -x*sa + z*ca, y1 = y*cb + z1*sb, z2 = -y*sb + z1*cb;
-      const k = 1/(1.5 - z2*.5), s = p.w*px0*k*1.5, al = (.3 + .7*(z2+1)/2)*(1 - p.r*.5);
+      const k = 1/(1.5 - z2*.5), s = p.w*px0*k*2.1, al = Math.min(1, (.45 + .75*(z2+1)/2)*(1.15 - p.r*.45));
       g.fillStyle = "rgba(190,245,255," + al.toFixed(3) + ")"; g.fillRect(c + x1*R*k - s/2, c + y1*R*k - s/2, s, s); }
     requestAnimationFrame(loop);
   }
@@ -1141,7 +1141,7 @@ if(brainKey && xiKey){ $("setup").querySelector("p").textContent = "הכול מ�
     bar(0, amp, Math.round(amp*100) + "%"); bar(1, linkMs ? 1 - Math.min(1, linkMs/800) : 0, linkMs ? linkMs + "ms" : "--");
     bar(2, fps/60, Math.round(fps) + "fps"); bar(3, turns/20, String(turns)); bar(4, n/4, String(n)); }, 90);
   const meta = () => { const d = new Date(); q("jvMeta").innerHTML = "";
-    [d.toISOString().slice(0,10), "TZ " + (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toUpperCase(), "NET " + (navigator.onLine ? "ONLINE" : "OFFLINE"), "DISPLAY " + innerWidth + "x" + innerHeight]
+    [d.getFullYear() + "-" + two(d.getMonth()+1) + "-" + two(d.getDate()), "TZ " + (Intl.DateTimeFormat().resolvedOptions().timeZone || "").toUpperCase(), "NET " + (navigator.onLine ? "ONLINE" : "OFFLINE"), "DISPLAY " + innerWidth + "x" + innerHeight]
       .forEach(t => { const e = document.createElement("div"); e.textContent = t; q("jvMeta").appendChild(e); });
     q("jvFoot").textContent = "UPLINK " + (linkMs ? linkMs + "ms" : "--") + "  //  SESSION " + Math.floor(performance.now()/60000) + "m"; };
   meta(); setInterval(meta, 5000);
