@@ -199,7 +199,7 @@ const MEDIA_TOOLS = [
 const LIFE_TOOLS = [
   { name: 'goals', description: 'היעדים של אדוני וההתקדמות בהם לאורך זמן (למשל להגיע למאה הזמנות בחודש, לרדת חמישה קילו). add מוסיף יעד, progress רושם עדכון התקדמות, done מסמן שהושג, remove מסיר, show מציג הכול. השתמשי בזה כשהוא מדבר על מטרה שהוא רוצה להשיג או מספר על התקדמות בה.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'progress', 'done', 'remove', 'show'] }, title: str('שם היעד'), target: str('היעד המדיד, אם יש'), note: str('ל-progress: מה התקדם') }, required: ['action'] } },
   { name: 'watch_topic', description: 'מעקב מתמשך אחרי נושא, מוצר, מחיר, מתחרה או דף אינטרנט: את בודקת כל כמה שעות ומעדכנת את אדוני רק כשמשהו השתנה באמת. add מוסיף (what: תיאור מדויק או כתובת), remove מסיר, list מציג. השתמשי בזה כשהוא אומר תעקבי אחרי, תעדכני אותי כש, תבדקי כל יום.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'remove', 'list'] }, what: str('על מה לעקוב'), every_hours: { type: 'number', description: 'כל כמה שעות לבדוק, 3 עד 168, ברירת מחדל 24' } }, required: ['action'] } },
-  { name: 'run_check', description: 'בדיקה טכנית של היוזמות שלך, בלי להכריז דבר: mail (סיווג המיילים האחרונים), meetings (הכנה לאירוע שמתחיל בעוד כשעה), topics (הנושאים במעקב), media (תוצאת הסרטון או המוזיקה האחרונים). השתמשי בזה רק כשמבקשים ממך במפורש להריץ בדיקה, ומסרי את התוצאה כמו שהיא.', input_schema: { type: 'object', properties: { what: { type: 'string', enum: ['mail', 'meetings', 'topics', 'media'] } }, required: ['what'] } },
+  { name: 'run_check', description: 'בדיקה טכנית של היוזמות שלך, בלי להכריז דבר: mail (סיווג המיילים האחרונים), meetings (הכנה לאירוע שמתחיל בעוד כשעה), topics (הנושאים במעקב), media (תוצאת הסרטון או המוזיקה האחרונים). השתמשי בזה רק כשמבקשים ממך במפורש להריץ בדיקה, ומסרי את התוצאה כמו שהיא.', input_schema: { type: 'object', properties: { what: { type: 'string', enum: ['mail', 'mailsample', 'meetings', 'topics', 'media'] } }, required: ['what'] } },
   { name: 'set_style', description: 'שינוי סגנון הדיבור שלך באופן קבוע, עד שיבקש אחרת: רגיל, מקצועי, הומוריסטי או רגוע.', input_schema: { type: 'object', properties: { style: { type: 'string', enum: ['רגיל', 'מקצועי', 'הומוריסטי', 'רגוע'] } }, required: ['style'] } },
   { name: 'manage_list', description: 'רשימות מנוהלות של אדוני: משימות, קניות או כל רשימה אחרת בשם שיבחר. add מוסיף פריטים, done מסמן כבוצע, remove מסיר, show מציג (בלי שם: אילו רשימות קיימות), clear_done מנקה את מה שבוצע, clear מוחק את כל הרשימה. השתמשי בזה כשהוא אומר להוסיף לרשימה, מה ברשימה, או שסיים משהו.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['add', 'done', 'remove', 'show', 'clear_done', 'clear'] }, list: str('שם הרשימה, למשל משימות או קניות'), items: { type: 'array', items: { type: 'string' }, description: 'הפריטים' } }, required: ['action'] } },
   { name: 'recall_past_conversations', description: 'חיפוש לפי משמעות ביומן כל השיחות הקודמות עם אדוני (טאבלט, טלפון, וואטסאפ), גם מה שנאמר מזמן ובמילים אחרות. השתמשי בזה כשהוא מתייחס למשהו שדיברתם עליו בעבר ואינו מופיע בשיחה הנוכחית או בזיכרון, או שואל מה אמר, מה החליט או מתי דיברתם על משהו.', input_schema: { type: 'object', properties: { query: str('מה לחפש, בתיאור חופשי') }, required: ['query'] } },
@@ -364,7 +364,7 @@ export function agentStatus() { return { webSearch: webOk, webError: webErr, ext
 const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|לילה טוב|תעצרי|מוזיקה|השיר/;
 const pickModels = (text, followup) => (!followup && text.length <= 60 && QUICK.test(text) ? ['claude-haiku-5-5', 'claude-sonnet-5-5'] : MODELS);
 // A habit to stamp out: ending an answer with an unasked-for "correction" of something said earlier.
-const AFTERTHOUGHT = /לתיקון|יש (?:לי )?(?:גם )?תיקון|תיקון חשוב|לתדריך הקודם|מה שאמרתי קודם|בתשובה הקודמת|טעיתי קודם/;
+const AFTERTHOUGHT = /(?:אני )?צריכה לתקן|עליי לתקן|חייבת לתקן|לתיקון|יש (?:לי )?(?:גם )?תיקון|תיקון חשוב|לתדריך הקודם|מה שאמרתי קודם|בתשובה הקודמת|טעיתי קודם/;
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export const agentRun = (m, sy, tl, max, onT, box) => streamOnce(m, sy, tl, onT || (() => {}), MODELS, null, max, box || '');
@@ -479,7 +479,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'download_file_to_computer' ? await downloadOnMac(inp.url, inp.name)
             : b.name === 'debate' ? await debate(agentRun, inp.question, inp.context)
             : b.name === 'knowledge_map' ? await (async () => { const k = await knowledgeMap(inp.topic); if (k.card && opts.control) { try { opts.control({ card: k.card }); } catch (e) {} } return k.text; })()
-            : b.name === 'self_review' ? await selfReview(inp.days)
+            : b.name === 'self_review' ? await selfReview(agentRun, inp.days)
             : b.name === 'set_routine' ? (inp.on === undefined ? 'מצב היוזמות: ' + routinesText() : setRoutine(inp.name, inp.on))
             : b.name === 'translation_mode' ? setTranslate(!!inp.on, inp.to)
             : b.name === 'set_face' ? (opts.control ? (opts.control({ face: !!inp.on }), inp.on ? 'הפנים מוצגות.' : 'הפנים הוסתרו.') : 'אין מסך זמין כרגע.')

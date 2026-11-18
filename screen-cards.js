@@ -80,7 +80,7 @@ export async function productsCard(query, lowStock) {
 // Which windows the words themselves call for, so they open even when she answers from what she already knows.
 export function wanted(text) {
   const t = String(text || ''), out = [];
-  if (/יומן|לו"ז|לוז |הלוז|פגיש|אירוע|מה יש לי (היום|מחר|השבוע)/.test(t) && !/יומן ה?שיחות/.test(t)) out.push(/שבוע/.test(t) ? 'calendar:week' : 'calendar');
+  if (/יומן|לו"ז|לוז |הלוז|פגיש|אירוע|מה יש לי (היום|מחר|השבוע)/.test(t) && !/יומן ה?(שיחות|פעולות)|run_check/.test(t)) out.push(/שבוע/.test(t) ? 'calendar:week' : 'calendar');
   if (/מייל|אימייל|דואר/.test(t) && !/שלח|תשלח|כתבי/.test(t)) out.push('mail');
   if (/וואטסאפ|ווטסאפ|הודעות|הודעה חדשה/.test(t) && !/שלח|תשלח|כתבי/.test(t)) out.push('messages');
   if (/תזכור(ו)?ת/.test(t) && /מה|אילו|איזה|הראי|תראי|יש/.test(t)) out.push('reminders');
