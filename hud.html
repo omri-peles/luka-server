@@ -127,6 +127,44 @@
   @keyframes drift{ from{ transform:translateX(-3px); } to{ transform:translateX(4px); } }
   @keyframes drop{ 0%{ transform:translateY(-4px); opacity:0; } 30%{ opacity:1; } 100%{ transform:translateY(12px); opacity:0; } }
   @keyframes flash{ 0%,88%{ opacity:.15; } 90%,94%{ opacity:1; } 96%{ opacity:.3; } }
+  /* ---------- graphic windows: calendar, mail, messages, shop, reminders, picture, numbers ---------- */
+  .fx{ padding:16px 16px 14px; animation:wxIn .55s cubic-bezier(.2,.8,.2,1); overflow:hidden; }
+  .fx::before, .fx::after{ content:""; position:absolute; width:16px; height:16px; border:2px solid var(--cyan); opacity:.8; }
+  .fx::before{ top:-1px; inset-inline-end:-1px; border-inline-start:0; border-bottom:0; border-start-end-radius:14px; }
+  .fx::after{ bottom:-1px; inset-inline-start:-1px; border-inline-end:0; border-top:0; border-end-start-radius:14px; }
+  .fx .scan{ position:absolute; inset-inline:0; top:0; height:2px; background:linear-gradient(90deg,transparent,var(--cyan),transparent); opacity:.7; animation:scan 2.6s ease-in-out infinite; pointer-events:none; }
+  @keyframes scan{ 0%{ top:0; opacity:0; } 15%{ opacity:.7; } 85%{ opacity:.7; } 100%{ top:100%; opacity:0; } }
+  .fx-head{ display:flex; align-items:center; gap:12px; direction:ltr; margin-bottom:10px; }
+  .fx-head svg{ width:34px; height:34px; flex:0 0 auto; filter:drop-shadow(0 0 8px rgba(79,227,242,.6)); }
+  .fx-big{ font-size:2.6rem; font-weight:200; line-height:1; color:#eafcff; text-shadow:0 0 18px rgba(79,227,242,.5); letter-spacing:-1px; }
+  .fx-sub{ margin-inline-start:auto; font-size:1.05rem; color:var(--cyan); font-variant-numeric:tabular-nums; }
+  .fx-row{ display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px solid var(--cyan-faint); font-size:.93rem; color:#e6f7fb; animation:rowIn .4s both; }
+  .fx-row:nth-child(2){ animation-delay:.05s; } .fx-row:nth-child(3){ animation-delay:.1s; } .fx-row:nth-child(4){ animation-delay:.15s; } .fx-row:nth-child(5){ animation-delay:.2s; } .fx-row:nth-child(6){ animation-delay:.25s; } .fx-row:nth-child(n+7){ animation-delay:.3s; }
+  @keyframes rowIn{ from{ opacity:0; transform:translateX(12px); } to{ opacity:1; transform:none; } }
+  .fx-row .grow{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fx-row .num{ font-variant-numeric:tabular-nums; color:var(--cyan); direction:ltr; flex:0 0 auto; }
+  .fx-row .dim{ opacity:.55; font-size:.8rem; flex:0 0 auto; direction:ltr; }
+  .fx-row.past{ opacity:.4; }
+  .dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:rgba(255,255,255,.18); }
+  .dot.ok{ background:#5dffb0; box-shadow:0 0 8px #5dffb0; } .dot.wait{ background:#ffd36b; box-shadow:0 0 8px #ffd36b; } .dot.off{ background:#ff6b6b; box-shadow:0 0 8px #ff6b6b; }
+  .dot.live{ background:var(--cyan); box-shadow:0 0 10px var(--cyan); animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse{ 50%{ transform:scale(1.7); opacity:.5; } }
+  .fx-day{ display:flex; align-items:baseline; gap:8px; margin:10px 0 2px; color:var(--cyan); font-size:.85rem; }
+  .fx-day b{ font-size:1.5rem; font-weight:300; color:#eafcff; }
+  .tl{ position:relative; padding-inline-start:16px; }
+  .tl::before{ content:""; position:absolute; inset-inline-start:4px; top:6px; bottom:6px; width:1px; background:linear-gradient(var(--cyan),transparent); opacity:.5; }
+  .tl .fx-row{ border-top:0; padding:5px 0; position:relative; }
+  .tl .fx-row .dot{ position:absolute; inset-inline-start:-16px; }
+  .bars{ display:flex; align-items:flex-end; gap:4px; height:46px; margin:4px 0 10px; direction:ltr; }
+  .bars i{ flex:1; min-height:2px; border-radius:2px 2px 0 0; background:linear-gradient(var(--cyan),rgba(79,227,242,.15)); transform-origin:bottom; animation:grow .7s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes grow{ from{ transform:scaleY(0); } }
+  .ava{ width:30px; height:30px; border-radius:50%; flex:0 0 auto; display:grid; place-items:center; font-size:.9rem; color:#eafcff; border:1px solid var(--cyan-dim); background:radial-gradient(circle at 30% 30%, rgba(79,227,242,.35), rgba(79,227,242,.05)); }
+  .two{ flex:1; min-width:0; } .two div{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .two div:last-child{ font-size:.82rem; opacity:.65; }
+  .stock{ width:54px; height:5px; border-radius:5px; background:rgba(255,255,255,.1); flex:0 0 auto; overflow:hidden; direction:ltr; }
+  .stock i{ display:block; height:100%; background:var(--cyan); }
+  .thumb{ width:34px; height:34px; border-radius:8px; object-fit:cover; flex:0 0 auto; margin:0 !important; }
+  .ring{ } .cd{ width:30px; height:30px; flex:0 0 auto; }
+  .pic{ padding:8px; } .pic img{ margin:0; border-radius:10px; }
   .upd{ width:54px; height:54px; padding:0; border-radius:50%; align-self:flex-start; display:grid; place-items:center; }
   .upd svg{ width:28px; height:28px; animation:spin 3s linear infinite; }
   .hidden{ display:none !important; }
@@ -431,9 +469,76 @@ function mountCard(el, life){
   const all = box.querySelectorAll(".card"); for(let i = 3; i < all.length; i++) closeCard(all[i]);
   setTimeout(()=> closeCard(el), life || 120000);
 }
+const ICONS = {
+  calendar:"M4 7h16v13H4zM4 11h16M8 4v4M16 4v4", mail:"M3 6h18v12H3zM3 7l9 7 9-7", chat:"M4 5h16v11H9l-5 4z",
+  bag:"M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2", box:"M12 3l8 4v10l-8 4-8-4V7zM4 7l8 4 8-4M12 11v10", clock:"M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+  chart:"M4 20V10M10 20V4M16 20v-7M22 20H2", money:"M12 3v18M16 7H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7", pin:"M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11zM12 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4",
+  person:"M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0", file:"M6 3h8l4 4v14H6zM14 3v4h4", globe:"M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18", star:"M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 17l-5.4 2.8 1.1-6.1L3.2 9.4l6.1-.8z" };
+function glyph(name){ const s = document.createElementNS(SVGNS, "svg"); s.setAttribute("viewBox", "0 0 24 24"); const p = document.createElementNS(SVGNS, "path");
+  p.setAttribute("d", ICONS[name] || ICONS.chart); p.setAttribute("fill", "none"); p.setAttribute("stroke", "#4fe3f2"); p.setAttribute("stroke-width", "1.6"); p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round"); s.appendChild(p); return s; }
+function E(tag, cls, txt){ const e = document.createElement(tag); if(cls) e.className = cls; if(txt != null && txt !== "") e.textContent = String(txt); return e; }
+function frame(icon, big, sub){
+  const el = E("div", "card fx"); el.appendChild(E("div", "scan")); el.onclick = ()=> closeCard(el);
+  const h = E("div", "fx-head"); h.appendChild(glyph(icon)); if(big != null && big !== "") h.appendChild(E("div", "fx-big", big)); if(sub) h.appendChild(E("div", "fx-sub", sub)); el.appendChild(h);
+  return el;
+}
+const nf = (n) => Number(n || 0).toLocaleString("en-US");
+const CUR = { ILS:"₪", USD:"$", EUR:"€", GBP:"£" };
+function graphicCard(c){
+  const items = Array.isArray(c.items) ? c.items : [];
+  if(c.kind === "calendar"){
+    const el = frame("calendar", "", c.now);
+    for(const d of (c.days || [])){
+      const dh = E("div", "fx-day"); dh.appendChild(E("b", "", d.dom)); dh.appendChild(E("span", "", d.wd)); el.appendChild(dh);
+      const tl = E("div", "tl");
+      for(const it of (d.items || [])){ const r = E("div", "fx-row" + (it.past ? " past" : "")); r.appendChild(E("span", "dot" + (it.live ? " live" : it.past ? "" : " ok")));
+        r.appendChild(E("span", "num", it.t || "●")); r.appendChild(E("span", "grow", it.title)); if(it.e) r.appendChild(E("span", "dim", it.e)); tl.appendChild(r); }
+      if(!(d.items || []).length){ const r = E("div", "fx-row past"); r.appendChild(E("span", "dot")); r.appendChild(E("span", "num", "—")); tl.appendChild(r); }
+      el.appendChild(tl);
+    }
+    return el;
+  }
+  if(c.kind === "mail" || c.kind === "messages"){
+    const el = frame(c.kind === "mail" ? "mail" : "chat", String(c.count != null ? c.count : items.length));
+    for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "ava", (String(it.from || "?").trim()[0] || "?").toUpperCase()));
+      const two = E("div", "two"); two.appendChild(E("div", "", it.from)); two.appendChild(E("div", "", it.text)); r.appendChild(two); if(it.at) r.appendChild(E("span", "dim", it.at)); el.appendChild(r); }
+    return el;
+  }
+  if(c.kind === "orders"){
+    const el = frame("bag", String(c.count || 0), (CUR[c.cur] || "") + nf(c.total));
+    const bars = (c.bars || []); if(bars.length > 1){ const max = Math.max(1, ...bars), b = E("div", "bars");
+      bars.forEach((v, i)=>{ const x = E("i"); x.style.height = Math.max(4, v / max * 100) + "%"; x.style.animationDelay = (i * 40) + "ms"; if(!v) x.style.opacity = ".25"; b.appendChild(x); }); el.appendChild(b); }
+    for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "num", it.name)); r.appendChild(E("span", "grow", ""));
+      r.appendChild(E("span", "", (CUR[c.cur] || "") + nf(it.amount))); r.appendChild(E("span", "dot " + (it.paid ? "ok" : "wait"))); r.appendChild(E("span", "dot " + (it.sent ? "ok" : "wait"))); el.appendChild(r); }
+    return el;
+  }
+  if(c.kind === "products"){
+    const el = frame("box", String(items.length)); const max = Math.max(1, ...items.map(x => Number(x.stock) || 0));
+    for(const it of items){ const r = E("div", "fx-row");
+      if(it.img && /^https:\/\//.test(it.img)){ const im = E("img", "thumb"); im.src = it.img; im.alt = ""; r.appendChild(im); } else r.appendChild(E("span", "dot " + (it.on ? "ok" : "off")));
+      r.appendChild(E("span", "grow", it.title)); const st = E("span", "stock"), f = E("i"); f.style.width = Math.max(0, Math.min(100, (Number(it.stock) || 0) / max * 100)) + "%"; if((Number(it.stock) || 0) <= 2) f.style.background = "#ff6b6b"; st.appendChild(f); r.appendChild(st);
+      r.appendChild(E("span", "dim", String(it.stock))); r.appendChild(E("span", "num", (CUR[it.cur] || "") + nf(it.price))); el.appendChild(r); }
+    return el;
+  }
+  if(c.kind === "reminders"){
+    const el = frame("clock", String(c.count != null ? c.count : items.length));
+    for(const it of items){ const r = E("div", "fx-row"); r.appendChild(E("span", "dot " + (it.mins <= 15 ? "live" : "ok"))); r.appendChild(E("span", "num", it.t)); if(it.wd) r.appendChild(E("span", "dim", it.wd));
+      r.appendChild(E("span", "grow", it.title)); el.appendChild(r); }
+    return el;
+  }
+  if(c.kind === "info" || Array.isArray(c.rows) && c.rows.length){
+    const el = frame(c.icon || "chart", "");
+    for(const it of (c.rows || []).slice(0, 8)){ const r = E("div", "fx-row"); r.appendChild(E("span", "grow", it.label)); r.appendChild(E("span", "num", it.value)); el.appendChild(r); }
+    if(c.image && /^https:\/\//.test(c.image)){ const im = E("img"); im.src = c.image; im.alt = ""; el.appendChild(im); }
+    return el;
+  }
+  if(c.image && /^https:\/\//.test(c.image)){ const el = E("div", "card fx pic"); el.appendChild(E("div", "scan")); el.onclick = ()=> closeCard(el); const im = E("img"); im.src = c.image; im.alt = ""; el.appendChild(im); return el; }
+  return null;
+}
 function showCard(c){
   if(!c || typeof c !== "object") return;
   if(c.kind === "weather"){ mountCard(weatherWidget(c), 60000); return; }
+  if(c.kind !== "update"){ const g = graphicCard(c); if(g){ mountCard(g, 90000); return; } }
   if(c.kind === "update"){ const u = document.createElement("div"); u.className = "card upd"; u.onclick = ()=> location.reload();
     const s = document.createElementNS(SVGNS, "svg"); s.setAttribute("viewBox", "0 0 24 24"); const p = document.createElementNS(SVGNS, "path");
     p.setAttribute("d", "M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"); p.setAttribute("fill", "none"); p.setAttribute("stroke", "#4fe3f2"); p.setAttribute("stroke-width", "2"); p.setAttribute("stroke-linecap", "round"); s.appendChild(p); u.appendChild(s);

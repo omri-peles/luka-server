@@ -73,3 +73,22 @@ export async function shopifySetPrice(title, price) {
     return `המחיר של "${prod.title}" שונה מ-${old} ל-${p}.`;
   } catch (e) { return 'המחיר לא שונה. ' + e.message + ' אם כתוב שחסרה הרשאה, צריך להוסיף לאפליקציה בשופיפיי את ההרשאה write_products.'; }
 }
+
+// The same shop data as numbers, for the graphic windows on the tablet screen. Read only.
+export async function shopifyOrdersData(days) {
+  const d = Math.max(1, Math.min(60, Number(days) || 1));
+  const since = new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+  const data = await gql(`query($q:String!,$n:Int!){ orders(first:$n, sortKey:CREATED_AT, reverse:true, query:$q){ edges{ node{ name createdAt displayFinancialStatus displayFulfillmentStatus currentTotalPriceSet{ shopMoney{ amount currencyCode } } } } } }`, { q: 'created_at:>=' + since, n: 50 });
+  const o = data.orders.edges.map(e => e.node);
+  const byDay = {}; for (let i = d - 1; i >= 0; i--) byDay[new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)] = 0;
+  let total = 0;
+  for (const x of o) { const a = Number(x.currentTotalPriceSet.shopMoney.amount) || 0; total += a; const k = x.createdAt.slice(0, 10); if (k in byDay) byDay[k] += a; }
+  return { days: d, count: o.length, total: Math.round(total), cur: o[0] ? o[0].currentTotalPriceSet.shopMoney.currencyCode : '',
+    bars: Object.values(byDay).slice(-14).map(v => Math.round(v)),
+    items: o.slice(0, 6).map(x => ({ name: x.name, amount: Math.round(Number(x.currentTotalPriceSet.shopMoney.amount) || 0), paid: /PAID/.test(x.displayFinancialStatus) && !/UNPAID|PARTIALLY/.test(x.displayFinancialStatus), sent: x.displayFulfillmentStatus === 'FULFILLED' })) };
+}
+export async function shopifyProductsData(query, lowStock) {
+  const q = [(query || '').toString().trim(), lowStock != null && lowStock !== '' ? `inventory_total:<=${Number(lowStock) || 0}` : ''].filter(Boolean).join(' ');
+  const data = await gql(`query($q:String,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title status totalInventory featuredImage{ url } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } }`, { q: q || null, n: 8 });
+  return data.products.edges.map(e => e.node).map(x => ({ title: x.title.slice(0, 40), price: Math.round(Number(x.priceRangeV2.minVariantPrice.amount) || 0), cur: x.priceRangeV2.minVariantPrice.currencyCode, stock: x.totalInventory, on: x.status === 'ACTIVE', img: x.featuredImage ? x.featuredImage.url : '' }));
+}

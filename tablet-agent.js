@@ -18,6 +18,7 @@ import { shopifySetPrice } from './shopify.js';
 import { mailOn, sendEmail } from './mail.js';
 import { newTurn } from './gate.js';
 import { weatherCard } from './weather-card.js';
+import { cardOf, wanted } from './screen-cards.js';
 import { openOnComputer, closeOnComputer, computerOnline, macOnline, openAppOnComputer, volumeOnComputer } from './computer.js';
 
 const COMPUTER_TOOLS = [
@@ -104,10 +105,13 @@ const MACFILE_TOOLS = [
 ];
 
 const SCREEN_TOOLS = [
-  { name: 'show_on_screen', description: 'הצגת כרטיס מידע על המסך של לוקה, ליד הטבעת. השתמשי בזה ביוזמתך כשיש מידע שנוח לראות בעיניים: מזג אוויר, היומן של היום, מכירות והזמנות, רשימת מוצרים, תוצאות חיפוש עם מספרים, תזכורות. הכרטיס הוא תקציר של נתונים, לא תמלול של מה שאת אומרת: שורות קצרות של כותרת וערך. במקביל אמרי בקול רק את העיקר.', input_schema: { type: 'object', properties: {
-      title: str('כותרת קצרה לכרטיס'),
-      rows: { type: 'array', description: 'עד שמונה שורות', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label', 'value'] } },
-      note: str('שורת הערה קצרה אחת (לא חובה)') }, required: ['title', 'rows'] } },
+  { name: 'show_on_screen', description: 'פתיחת חלון גרפי על המסך של לוקה, ליד הטבעת. השתמשי בזה ביוזמתך בכל פעם שאדוני שואל על משהו שאפשר לראות: היומן, מיילים, הודעות וואטסאפ, הזמנות ומכירות, מוצרים, תזכורות, או כל נתון אחר. לסוגים calendar, mail, messages, orders, products, reminders המערכת מביאה את הנתונים בעצמה ומציירת אותם, אז אל תמלאי rows. לכל דבר אחר בחרי info ומלאי rows בשורות קצרות של שם וערך (מספרים, שעות, שמות), בלי משפטים. החלון נסגר לבד כשאדוני ממשיך לדבר. במקביל אמרי בקול רק את העיקר.', input_schema: { type: 'object', properties: {
+      what: { type: 'string', enum: ['calendar', 'mail', 'messages', 'orders', 'products', 'reminders', 'info'], description: 'סוג החלון' },
+      range: { type: 'string', enum: ['today', 'two_days', 'week'], description: 'ליומן: כמה ימים להציג' },
+      days: { type: 'number', description: 'להזמנות: כמה ימים אחורה' },
+      query: str('למוצרים: מילות חיפוש (לא חובה)'),
+      icon: { type: 'string', enum: ['chart', 'money', 'clock', 'pin', 'person', 'file', 'globe', 'star', 'box'], description: 'ל-info: סמל שמתאים לתוכן' },
+      rows: { type: 'array', description: 'ל-info בלבד: עד שמונה שורות', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label', 'value'] } } }, required: ['what'] } },
   { name: 'clear_screen', description: 'סגירת כל הכרטיסים שעל המסך של לוקה, כשאדוני מבקש לנקות או לסגור אותם.', input_schema: { type: 'object', properties: {} } }
 ];
 const BRIEF_TOOLS = [
@@ -298,6 +302,18 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   };
   const releaseHeld = () => { if (!mute && !decided) { decided = true; for (const h of held) onSentenceRaw(h); held = []; } };
   newTurn();
+  // The graphic windows on her screen: each kind opens at most once per turn.
+  const shown = new Set();
+  const pop = async (what, inp) => {
+    const kind = String(what).split(':')[0];
+    if (!opts.control || shown.has(kind)) return shown.has(kind);
+    shown.add(kind);
+    const c = await cardOf(what, inp || {});
+    if (!c) { shown.delete(kind); return false; }
+    try { opts.control({ card: c }); } catch (e) {}
+    return true;
+  };
+  if (opts.control) for (const w of wanted(text)) pop(w).catch(() => {});
   const s = load();
   s.conversation.push({ role: 'user', content: text });
   let messages = s.conversation.slice(-16);
@@ -309,7 +325,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
     ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...(macV4() ? MAC4_TOOLS : []), ...BRIEF_TOOLS,
     ...(opts.control ? SCREEN_TOOLS : [])].filter(t => opts.control || t.name !== 'look_through_camera');
-  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר. למזג אוויר מוצג לבד חלון גרפי כשאת קוראת ל-get_weather, אז אל תציגי לו כרטיס נוסף. בכרטיסים אחרים כתבי רק שורות קצרות של נתונים ומספרים, בלי משפטים."; }
+  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: בכל פעם שהתשובה נוגעת ליומן, למיילים, להודעות, לחנות, לתזכורות או לכל נתון אחר, פתחי חלון גרפי ב-show_on_screen ואמרי בקול רק את העיקר. למזג אוויר, להזמנות, למוצרים ולתזכורות החלון נפתח לבד כשאת קוראת לכלי שלהם, אז אל תפתחי להם חלון נוסף. תמונה שיצרת מוצגת על המסך לבד כשהיא מוכנה. החלונות נסגרים לבד כשאדוני ממשיך לדבר."; }
   if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
   if (opts.channel === 'whatsapp') sys += "\n\nזו התכתבות בוואטסאפ עם אדוני, לא שיחה קולית. הוא לא מול המסך של לוקה. כתבי תשובה עניינית, אפשר כמה שורות, ומותר לצרף קישורים. אל תכתבי 'בודקת, אדוני' לפני חיפוש. תוצאות של משימות רקע יישלחו אליו בהודעה נפרדת כשיהיו מוכנות.";
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
@@ -337,12 +353,23 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
           const inp = b.input || {};
           const out = b.name === 'remember' ? remember(inp.category, inp.text)
             : b.name === 'forget' ? forget(inp.text)
-            : b.name === 'show_on_screen' ? (opts.control ? (opts.control({ card: { title: String(inp.title || '').slice(0, 80), rows: (Array.isArray(inp.rows) ? inp.rows : []).slice(0, 8).map(r => ({ label: String(r.label || '').slice(0, 60), value: String(r.value || '').slice(0, 120) })), note: String(inp.note || '').slice(0, 200) } }), 'הכרטיס מוצג על המסך.') : 'אין מסך זמין כרגע.')
+            : b.name === 'show_on_screen' ? await (async () => {
+                if (!opts.control) return 'אין מסך זמין כרגע.';
+                const what = String(inp.what || 'info');
+                if (what === 'info') {
+                  const rows = (Array.isArray(inp.rows) ? inp.rows : []).slice(0, 8).map(r => ({ label: String(r.label || '').slice(0, 40), value: String(r.value || '').slice(0, 60) }));
+                  if (!rows.length) return 'לא הוצג: חסרות שורות.';
+                  opts.control({ card: { kind: 'info', icon: String(inp.icon || 'chart'), rows } });
+                  return 'החלון מוצג על המסך.';
+                }
+                return (await pop(what, inp)) ? 'החלון מוצג על המסך.' : 'אין כרגע נתונים להצגה בחלון הזה.';
+              })()
             : b.name === 'clear_screen' ? (opts.control ? (opts.control({ cards: 'clear' }), 'המסך נוקה.') : 'אין מסך זמין כרגע.')
             : b.name === 'daily_brief' ? await (async () => {
                 const parts = [];
                 try { parts.push('מזג אוויר: ' + await runTool('get_weather', {})); } catch (e) {}
                 try { parts.push((await liveContext()) || ''); } catch (e) {}
+                if (opts.control) { weatherCard().then(c => { if (c) { try { opts.control({ card: c }); } catch (e) {} } }).catch(() => {}); pop('calendar:today').catch(() => {}); }
                 const wa = (load().waRecent || []).slice(-6);
                 if (wa.length) parts.push('הודעות וואטסאפ אחרונות:\n' + wa.map(m => `- ${m.from}: ${m.body}`).join('\n'));
                 parts.push('תזכורות פתוחות:\n' + listReminders());
@@ -361,11 +388,11 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'open_file_on_computer' ? await openFileOnMac(inp.path)
             : b.name === 'control_music' ? await mediaOnMac(inp.action)
             : b.name === 'turn_off_computer_display' ? await displayOffOnMac()
-            : b.name === 'set_reminder' ? setReminder(inp.in_minutes, inp.text)
-            : b.name === 'list_reminders' ? listReminders()
+            : b.name === 'set_reminder' ? (r => (pop('reminders').catch(() => {}), r))(setReminder(inp.in_minutes, inp.text))
+            : b.name === 'list_reminders' ? (pop('reminders').catch(() => {}), listReminders())
             : b.name === 'cancel_reminder' ? cancelReminder(inp.text)
-            : b.name === 'shop_orders' ? await shopifyOrders(inp.days)
-            : b.name === 'shop_products' ? await shopifyProducts(inp.query, inp.low_stock)
+            : b.name === 'shop_orders' ? (pop('orders', inp).catch(() => {}), await shopifyOrders(inp.days))
+            : b.name === 'shop_products' ? (pop('products', inp).catch(() => {}), await shopifyProducts(inp.query, inp.low_stock))
             : b.name === 'make_image' ? makeImage(inp.description, inp.title)
             : b.name === 'drive_search' ? await driveSearch(inp.query)
             : b.name === 'drive_read' ? await driveRead(inp.id)
@@ -388,6 +415,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
                 const res = await runTool(b.name, inp);
                 if (b.name === 'get_weather' && opts.control && typeof res === 'string' && res.length > 10)
                   weatherCard(inp.city).then(c => { if (c) { try { opts.control({ card: c }); } catch (e) {} } }).catch(() => {});
+                if (/calendar_event/.test(b.name)) pop('calendar').catch(() => {});
                 return res;
               })();
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
