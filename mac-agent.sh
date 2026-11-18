@@ -209,6 +209,12 @@ on targetTab()
       set t to active tab of w
       if (URL of t) does not contain "railway.app" then return t
     end repeat
+    -- every window is showing Luka's own page: fall back to the first other tab that is open
+    repeat with w in (every window)
+      repeat with t in (every tab of w)
+        if (URL of t) does not contain "railway.app" then return t
+      end repeat
+    end repeat
   end tell
   return missing value
 end targetTab

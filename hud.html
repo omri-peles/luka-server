@@ -651,6 +651,9 @@ async function handleStream(text, my, followup){
         if(!line) continue;
         let o; try{ o = JSON.parse(line); }catch(e){ continue; }
         if(o.s) say(o.s);
+        // her brain could not answer at all: say why instead of staying silent (at most once every five minutes)
+        if(o.error && Date.now() - (window.__errSaid || 0) > 300000){ window.__errSaid = Date.now();
+          say(/credit balance/i.test(o.error) ? "אדוני, נגמר הקרדיט של המוח שלי אצל Anthropic. צריך לטעון אותו כדי שאחזור לעבוד." : "אדוני, יש לי כרגע תקלה בחיבור למוח. נסה שוב בעוד רגע."); }
         if(o.silent) silent = true;
         if(o.need === "camera") sendFrame(o.id);
         if(o.card) showCard(o.card);
