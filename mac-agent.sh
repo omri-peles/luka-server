@@ -150,7 +150,8 @@ type_text() {  # pastes the text into whatever window is in front (keeps Hebrew 
   # the app reads the clipboard a moment after the key press: confirm our text is still there, paste, and only
   # put the old clipboard back well after the paste has landed
   [ "$(/usr/bin/pbpaste 2>/dev/null)" = "$t" ] || { printf '%s' "$t" | /usr/bin/pbcopy; sleep 0.3; }
-  if /usr/bin/osascript -e 'tell application "System Events" to keystroke "v" using command down' >/dev/null 2>&1; then
+  # key code 9 is the V key by its position: unlike keystroke "v", it also works when the keyboard is set to Hebrew
+  if /usr/bin/osascript -e 'tell application "System Events" to key code 9 using command down' >/dev/null 2>&1; then
     sleep 2; printf '%s' "$old" | /usr/bin/pbcopy
     echo "הטקסט הוקלד באפליקציה שבחזית: $(/usr/bin/osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null)."
   else printf '%s' "$old" | /usr/bin/pbcopy; echo "$NEED_AX"; fi
@@ -170,7 +171,11 @@ on run argv
     if m is "alt" then set end of mods to option down
     if m is "ctrl" then set end of mods to control down
   end repeat
-  set codes to {{"enter", 36}, {"tab", 48}, {"space", 49}, {"delete", 51}, {"escape", 53}, {"left", 123}, {"right", 124}, {"down", 125}, {"up", 126}, {"home", 115}, {"end", 119}, {"pageup", 116}, {"pagedown", 121}, {"f11", 103}}
+  -- keys are pressed by their position on the keyboard, so they work the same when the keyboard is set to Hebrew
+  set codes to {{"enter", 36}, {"tab", 48}, {"space", 49}, {"delete", 51}, {"escape", 53}, {"left", 123}, {"right", 124}, {"down", 125}, {"up", 126}, {"home", 115}, {"end", 119}, {"pageup", 116}, {"pagedown", 121}, {"f11", 103}, ¬
+    {"a", 0}, {"s", 1}, {"d", 2}, {"f", 3}, {"h", 4}, {"g", 5}, {"z", 6}, {"x", 7}, {"c", 8}, {"v", 9}, {"b", 11}, {"q", 12}, {"w", 13}, {"e", 14}, {"r", 15}, {"y", 16}, {"t", 17}, ¬
+    {"1", 18}, {"2", 19}, {"3", 20}, {"4", 21}, {"6", 22}, {"5", 23}, {"=", 24}, {"9", 25}, {"7", 26}, {"-", 27}, {"8", 28}, {"0", 29}, {"o", 31}, {"u", 32}, {"i", 34}, {"p", 35}, ¬
+    {"l", 37}, {"j", 38}, {"k", 40}, {",", 43}, {"/", 44}, {"n", 45}, {"m", 46}, {".", 47}}
   tell application "System Events"
     repeat with c in codes
       if (item 1 of c) is k then
@@ -178,10 +183,6 @@ on run argv
         return "הוקש: " & combo
       end if
     end repeat
-    if (length of k) is 1 then
-      keystroke k using mods
-      return "הוקש: " & combo
-    end if
   end tell
   return "לא בוצע: מקש לא מוכר."
 end run
@@ -343,7 +344,7 @@ handle() {  # type, a1, a2
     mkdir) make_folder "$2" ;;
     move) move_file "$2" "$3" ;;
     download) download_file "$2" "$3" ;;
-    lock) /usr/bin/osascript -e 'tell application "System Events" to keystroke "q" using {control down, command down}' >/dev/null 2>&1 && echo "המסך ננעל." || echo "$NEED_AX" ;;
+    lock) /usr/bin/osascript -e 'tell application "System Events" to key code 12 using {control down, command down}' >/dev/null 2>&1 && echo "המסך ננעל." || echo "$NEED_AX" ;;
     power)
       case "$2" in
         restart) echo "המחשב מופעל מחדש."; ( sleep 3; /usr/bin/osascript -e 'tell application "System Events" to restart' >/dev/null 2>&1 ) & ;;
