@@ -274,14 +274,18 @@ export function agentStatus() { return { webSearch: webOk, webError: webErr, mod
 // fast model first; everything else gets the stronger one.
 const QUICK = /שעה|תאריך|איזה יום|מזג|יומן|תזכיר|תזכורת|טיימר|תפתחי|תסגרי|עוצמ|ווליום|תנמיכי|תגבירי|תודה|שלום|לילה טוב|תעצרי|מוזיקה|השיר/;
 const pickModels = (text, followup) => (!followup && text.length <= 60 && QUICK.test(text) ? ['claude-haiku-5-5', 'claude-sonnet-5-5'] : MODELS);
+// A habit to stamp out: ending an answer with an unasked-for "correction" of something said earlier.
+const AFTERTHOUGHT = /לתיקון|יש (?:לי )?(?:גם )?תיקון|תיקון חשוב|לתדריך הקודם|מה שאמרתי קודם|בתשובה הקודמת|טעיתי קודם/;
 const SILENT = /^\s*\[?\s*שקט\s*\]?[.!]?\s*$/;
 const NOT_UNDERSTOOD = /לא (?:הצלחתי להבין|הבנתי|ברור לי|שמעתי)|למה (?:אתה מתכוון|התכוונת|הכוונה)|תוכל לחזור|התמלול/;
 export async function chatStream(text, onSentenceRaw, opts = {}) {
   // Without her name, a reply that only says "I didn't understand" means the words were not
   // meant for her (or were garbled): hold the opening until that is clear, then stay silent.
-  let held = [], decided = !opts.followup, mute = false;
+  let held = [], decided = !opts.followup, mute = false, spoke = false, cut = false;
   const onSentence = (p) => {
     if (SILENT.test(p) || mute) return;
+    if (spoke && AFTERTHOUGHT.test(p)) { if (!decided) { decided = true; for (const h of held) onSentenceRaw(h); held = []; } mute = true; cut = true; return; }
+    spoke = true;
     if (decided) return onSentenceRaw(p);
     held.push(p);
     const sofar = held.join(' ');
@@ -301,7 +305,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
     ...(shopifyOn() ? SHOPIFY_TOOLS : []), ...(imagesOn() ? IMAGE_TOOLS : []), ...(driveOn() ? DRIVE_TOOLS : []), ...(macCanReadFiles() ? MACFILE_TOOLS : []),
     ...(mailOn() ? MAIL_TOOLS : []), ...(shopifyOn() ? SHOP_WRITE_TOOLS : []), ...(macV3() ? MAC3_TOOLS : []), ...BRIEF_TOOLS,
     ...(opts.control ? SCREEN_TOOLS : [])].filter(t => opts.control || t.name !== 'look_through_camera');
-  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר."; }
+  if (opts.control) { clearAway(); sys += "\n\nיש לך מסך: כשהתשובה כוללת נתונים (מזג אוויר, יומן, חנות, רשימה, מספרים) הציגי גם כרטיס ב-show_on_screen, ואמרי בקול רק את העיקר. למזג אוויר הכרטיס מוצג לבד כשאת קוראת ל-get_weather, אז אל תציגי לו כרטיס נוסף."; }
   if (opts.channel === 'call') sys += "\n\nאת כעת בשיחת טלפון עם אדוני. הוא לא מול המסך של לוקה: אין מצלמה ואין כרטיסים. עני קצר מאוד, משפט או שניים. תוצאות של משימות רקע (מחקר, אתר, תמונה) יישלחו אליו גם בוואטסאפ עם קישור, אז אמרי לו שיקבל אותן שם.";
   if (opts.channel === 'whatsapp') sys += "\n\nזו התכתבות בוואטסאפ עם אדוני, לא שיחה קולית. הוא לא מול המסך של לוקה. כתבי תשובה עניינית, אפשר כמה שורות, ומותר לצרף קישורים. אל תכתבי 'בודקת, אדוני' לפני חיפוש. תוצאות של משימות רקע יישלחו אליו בהודעה נפרדת כשיהיו מוכנות.";
   sys += "\n\nיש לך גם מחקר מעמיק ברקע (research_in_depth) ועיניים דרך המצלמה (look_through_camera). שיקול הדעת שלך: אדוני לא צריך לבקש מחקר במפורש. בכל שאלה או משימה החליטי בעצמך איזה כלי מתאים: עובדה אחת או שתיים, חיפוש רגיל; השוואה, בחירה בין אפשרויות, מציאת מוצרים או ספקים, ניתוח שוק או נושא שדורש כמה מקורות, פתחי מחקר מעמיק ביוזמתך ואמרי לו שהתחלת. כשבקשה אחת דורשת כמה כלים, השתמשי בכולם ברצף בלי לשאול רשות. " + (shopifyOn() ? 'החנות של אדוני בשופיפיי מחוברת לקריאה (shop_orders, shop_products). ' : '') + (imagesOn() ? 'את יכולה ליצור תמונות (make_image). ' : '') + (driveOn() ? 'יש לך גישת קריאה ל-Google Drive של אדוני (drive_search, drive_read). ' : '') + (macCanReadFiles() ? 'את יכולה למצוא ולקרוא קבצים במק של אדוני (find_file_on_computer, read_file_on_computer). ' : '') + "יש לך תזכורות וטיימרים (set_reminder). " + (mailOn() ? 'את יכולה לשלוח מייל בשם אדוני (send_email), אחרי אישור שלו. ' : '') + (macV3() ? 'במק את יכולה גם ליצור קובץ טקסט חדש, לפתוח קובץ, להעביר קובץ לאשפה אחרי אישור, לשלוט במוזיקה ולכבות את המסך. ' : '') + " כשאת מתארת תמונה, תארי רק מה שנראה בה בפועל, ואל תזהי אנשים לפי הפנים שלהם.";
@@ -371,7 +375,12 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'close_on_computer' ? await closeOnComputer(inp.what)
             : b.name === 'open_app_on_computer' ? await openAppOnComputer(inp.name)
             : b.name === 'set_computer_volume' ? await volumeOnComputer(inp.level)
-            : await runTool(b.name, inp);
+            : await (async () => {
+                const res = await runTool(b.name, inp);
+                if (b.name === 'get_weather' && opts.control && typeof res === 'string' && res.length > 10)
+                  opts.control({ card: { title: 'מזג אוויר', rows: [], note: res.slice(0, 260) } });
+                return res;
+              })();
           results.push({ type: 'tool_result', tool_use_id: b.id, content: out });
         }
       }
@@ -383,6 +392,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
   splitter.flush();
   let reply = full.trim();
   releaseHeld();
+  if (cut) { const m = reply.search(AFTERTHOUGHT); if (m > 0) { const head = reply.slice(0, m); reply = head.slice(0, Math.max(head.lastIndexOf('.'), head.lastIndexOf('?'), head.lastIndexOf('!')) + 1).trim() || head.trim(); } mute = false; }
   if (SILENT.test(reply) || mute) {                         // not addressed to her: say nothing, remember nothing
     const i = s.conversation.length - 1;
     if (i >= 0 && s.conversation[i].role === 'user' && s.conversation[i].content === text) s.conversation.pop();
