@@ -79,8 +79,10 @@ async function findEmail(l) {
   // An address on the business's own domain usually means it does have a website that Google Maps simply does not list: then there is nothing to offer.
   const dom = email.split('@')[1];
   if (!/^(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mac|comcast|att|verizon|sbcglobal|bellsouth|cox|charter|protonmail|proton|mail|gmx|zoho)\./i.test(dom)) {
-    try { const r = await fetch('https://' + dom, { signal: AbortSignal.timeout(9000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0' } });
-      if (r.ok && /text\/html/i.test(r.headers.get('content-type') || '') && (await r.text()).length > 1500) { l.status = 'hassite'; l.ownSite = dom; return ''; } } catch (e) {}
+    for (const u of ['https://' + dom, 'https://www.' + dom, 'http://' + dom]) {
+      try { const r = await fetch(u, { signal: AbortSignal.timeout(8000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120 Safari/537.36' } });
+        if (r.status < 500 && /text\/html/i.test(r.headers.get('content-type') || '')) { l.status = 'hassite'; l.ownSite = dom; return ''; } } catch (e) {}
+    }
   }
   // Keep it only if it can be tied to the business: the address is on the page it was said to be on, or it carries the business's own name.
   let onPage = false;
@@ -90,7 +92,9 @@ async function findEmail(l) {
   const tokens = l.name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 4 && !['shop', 'salon', 'store', 'service', 'services', 'company', 'austin', 'the '].includes(w));
   const flat = email.replace(/[^a-z0-9]/g, '');
   const named = tokens.some(w => flat.includes(w));
-  if (!onPage && !named) return '';
+  const known = /(^|\.)(facebook|instagram|yelp|yellowpages|mapquest|bbb|nextdoor|linkedin|thumbtack|manta|chamberofcommerce|birdeye|alignable|google|tiktok|booksy|vagaro|squareup|square\.site|styleseat|care)\.[a-z.]+$/i;
+  let host = ''; try { host = new URL(out.source).hostname; } catch (e) {}
+  if (!onPage && !(named && known.test(host))) return '';
   l.emailSource = String(out.source || '').slice(0, 200);
   return email;
 }
@@ -204,13 +208,14 @@ async function contact(l) {
   }
   if (!gmail()) return 'אין חיבור לחשבון Google.';
   const site = await ensureSite(l);
+  if (!l.test) { const gap = 170000 - (Date.now() - (st.lastFirst || 0)); if (gap > 0) await new Promise(r => setTimeout(r, Math.min(gap, 170000))); st.lastFirst = Date.now(); save(); }
   const p = st.prices;
   const m = json(await ask(
     `You are Luka, an AI assistant working for ${NAME()}, who builds websites for small local businesses. Write the first email to a business owner you have never spoken to. Plain, warm and short (under 110 words), no hype, no fake urgency, no invented facts, no emojis. Say honestly: you saw their business on Google Maps with its real rating, noticed it has no website, and already built a demo they can look at for free with no obligation. Give the link on its own line. If they like it, it can be theirs for $${p.ask} one time, or three monthly payments. Invite them to simply reply with questions or changes they want. Do not add a signature, a postal address or an unsubscribe line: those are added automatically. Reply with JSON only: {"subject":"","body":""}. The subject is short, specific and honest (no "Re:").`,
     `Business name: ${l.name}\nType: ${l.type}\nCity/address: ${l.address}\nGoogle rating: ${l.rating} from ${l.reviews} reviews\nDemo link: ${site}`, { max: 700 }));
   if (!m || !m.subject || !m.body || !String(m.body).includes(site)) return `לא הצלחתי לנסח מייל אל ${l.name}.`;
   l.subject = String(m.subject).slice(0, 140);
-  await send(l, l.subject, /\bAI\b/.test(String(m.body)) ? String(m.body) : String(m.body).replace(/\b(an|your|a) assistant\b/i, 'an AI assistant'));
+  await send(l, l.subject, /\bAI\b/.test(String(m.body)) ? String(m.body) : /\b(an|a) assistant\b/i.test(String(m.body)) ? String(m.body).replace(/\b(an|a) assistant\b/i, 'an AI assistant') : String(m.body).replace(/\bLuka\b/, 'Luka, an AI assistant'));
   l.status = 'contacted'; l.contactedAt = Date.now(); l.replies = 0; if (!l.test) st.sent++; save();
   return `פניתי במייל אל ${l.name} (${l.email}) עם אתר הדוגמה.`;
 }
@@ -324,6 +329,9 @@ async function tick() {
             hush(news.map(m => m.id));
             const H = (m, k) => ((m.payload && m.payload.headers) || []).find(x => x.name.toLowerCase() === k)?.value || '';
             const from = m => (H(m, 'from').match(/<([^>]+)>/) || [, H(m, 'from')])[1].trim().toLowerCase();
+            if (news.some(m => /mailer-daemon|postmaster/i.test(from(m)))) {
+              l.status = 'bounced'; const st0 = S(); if (!st0.optout.includes(l.email)) st0.optout.push(l.email); st0.bounced = (st0.bounced || 0) + 1; save(); continue;
+            }
             const theirs = news.filter(m => from(m) === l.email && (l.test || from(m) !== mine || l.email === mine));
             const others = news.filter(m => from(m) !== l.email && from(m) !== mine);
             if (others.length && !l.strangerTold) { l.strangerTold = true; save(); tell(`אדוני, בהתכתבות עם ${l.name} ענה מישהו מכתובת אחרת. לא עניתי לו. ההתכתבות בתיבת המייל שלך.`, l); }
@@ -386,10 +394,10 @@ export async function contactLead(q) {
 }
 // The owner tells her how to go on with one business: she writes to it at once, on her own.
 export async function salesGuide(q, note) {
-  const live = leads().filter(x => x.thread && !['optout', 'lost', 'done'].includes(x.status)), n = (q || '').toString().trim().toLowerCase();
+  const live = leads().filter(x => x.thread && !['optout', 'lost', 'done', 'bounced'].includes(x.status)), n = (q || '').toString().trim().toLowerCase();
   const l = (n && (live.find(x => x.key === n) || live.slice().reverse().find(x => x.name.toLowerCase().includes(n)))) || (!n && live.slice(-1)[0]) || pick(q);
   if (!l || !l.thread) return 'לא נמצאה התכתבות פעילה עם עסק כזה.';
-  if (['optout', 'lost'].includes(l.status)) return `ההתכתבות עם ${l.name} סגורה, ולא אכתוב לו שוב.`;
+  if (['optout', 'lost', 'bounced'].includes(l.status)) return `ההתכתבות עם ${l.name} סגורה, ולא אכתוב לו שוב.`;
   if (!String(note || '').trim()) return 'לא כתבתי: צריך הנחיה מפורשת של אדוני.';
   const lastLog = (l.log || []).slice(-1)[0];
   if (lastLog && lastLog.who === 'luka' && Date.now() - lastLog.at < 3 * 60000) return `לא כתבתי: נשלח ל-${l.name} מייל לפני רגע, ועכשיו מחכים לתשובה שלו. אין צורך במייל נוסף.`;
