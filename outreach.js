@@ -35,9 +35,9 @@ const slugOf = l => l.slug || String(l.site || '').split('/sites/')[1] || '';
 const tell = (text, l, phone) => announce(text, l ? { title: l.name, note: text.replace(/^אדוני, /, '').slice(0, 160), ...(l.site ? { link: l.site } : {}) } : undefined, l && l.site, !!phone);
 
 // ---------- the model ----------
-async function ask(system, user, { search = false, max = 1500 } = {}) {
-  const body = { model: 'claude-sonnet-5-5', max_tokens: max, system, messages: [{ role: 'user', content: user }],
-    ...(search ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }] } : {}) };
+async function ask(system, user, { search = false, max = 1500, model = 'claude-sonnet-5-5' } = {}) {
+  const body = { model, max_tokens: max, system, messages: [{ role: 'user', content: user }],
+    ...(search ? { tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }] } : {}) };
   for (let round = 0; round < 4; round++) {
     const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(150000),
       headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -68,7 +68,7 @@ const okMail = e => /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(e) && !/(
 async function findEmail(l) {
   const out = json(await ask(
     'You look up the public contact email of one specific local business. Use web search. Accept only an address that appears on a page that is clearly about this exact business (its Facebook or Instagram page, Yelp, a directory listing, a booking page). Never guess, never build an address from the name, never use an address of a different business or of a platform. Reply with JSON only: {"email":"","source":""} and leave both empty when no such address is found.',
-    `Business: ${l.name}\nType: ${l.type}\nAddress: ${l.address}\nPhone: ${l.phone}`, { search: true, max: 600 }));
+    `Business: ${l.name}\nType: ${l.type}\nAddress: ${l.address}\nPhone: ${l.phone}`, { search: true, max: 600, model: 'claude-haiku-5-5' }));
   const email = out && typeof out.email === 'string' ? out.email.trim().toLowerCase() : '';
   if (!email || !okMail(email)) return '';
   // Keep it only if it can be tied to the business: the address is on the page it was said to be on, or it carries the business's own name.
@@ -308,11 +308,12 @@ export function salesProgram(action, o = {}) {
   const st = S();
   if (action === 'start') { st.on = true; save(); return 'תוכנית המכירות פועלת. ' + salesStatus(); }
   if (action === 'stop') { st.on = false; save(); return 'תוכנית המכירות נעצרה: לא יוצאות פניות, תשובות או חשבוניות עד שתופעל שוב.'; }
+  if (action === 'shift') return salesShift(o.shift_from, o.shift_to, o.shift_lookups);
   if (action === 'set') {
     const n = k => Number.isFinite(Number(o[k])) && Number(o[k]) > 0 ? Math.round(Number(o[k])) : 0;
     if (n('ask')) st.prices.ask = n('ask'); if (n('floor')) st.prices.floor = n('floor'); if (n('maintenance')) st.prices.maint = n('maintenance');
     if (st.prices.floor > st.prices.ask) st.prices.floor = st.prices.ask;
-    if (n('daily_cap')) st.cap = Math.min(40, n('daily_cap'));
+    if (n('daily_cap')) st.cap = Math.min(100, n('daily_cap'));
     save(); return 'עודכן. ' + salesStatus();
   }
   return salesStatus();
@@ -355,28 +356,66 @@ export async function salesTest(q) {
 const campaigns = new Set();
 export function salesCampaign(kind, place, count) {
   kind = (kind || '').toString().trim().slice(0, 60); place = (place || '').toString().trim().slice(0, 80);
-  const want = Math.max(1, Math.min(10, Number(count) || 5)), st = S();
+  const want = Math.max(1, Math.min(10, Number(count && typeof count === 'object' ? count.n : count) || 5)), st = S();
   if (!leadsOn()) return 'החיפוש במפות לא מחובר.';
   if (!kind || !place) return 'צריך סוג עסק ומקום, באנגלית.';
   if (!st.on) return 'תוכנית המכירות כבויה. צריך להפעיל אותה קודם.';
   if (!ADDRESS()) return 'לא התחלתי: חסרה כתובת הדואר לתחתית המייל (SALES_ADDRESS בשרת).';
   if (campaigns.size) return 'סבב פניות אחד כבר רץ כרגע. אודיע כשיסתיים.';
   const id = Date.now(); campaigns.add(id);
+  const quiet = count && typeof count === 'object' && count.quiet;
   (async () => {
     let checked = 0, noMail = 0, sent = 0; const names = [];
     try {
       const { found } = await searchLeads(place, kind, Math.min(30, want * 5));
       for (const l of found) {
         if (sent >= want || !S().on) break;
-        checked++;
+        checked++; if (S().shift) S().shift.looked = (S().shift.looked || 0) + 1;
         try { l.email = await findEmail(l); } catch (e) { l.email = ''; }
         if (!l.email) { l.status = 'noemail'; noMail++; save(); continue; }
         const r = await contact(l);
         if (/^פניתי/.test(r)) { sent++; names.push(l.name); } else if (/תקרת/.test(r)) break;
       }
-      tell(`אדוני, סבב הפניות ל-${kind} ב-${place} הסתיים: בדקתי ${checked} עסקים בלי אתר, ל-${noMail} לא נמצא מייל, ופניתי ל-${sent}${names.length ? ': ' + names.join(', ') : ''}.`);
+      if (S().shift) { S().shift.sent = (S().shift.sent || 0) + sent; save(); }
+      if (!quiet) tell(`אדוני, סבב הפניות ל-${kind} ב-${place} הסתיים: בדקתי ${checked} עסקים בלי אתר, ל-${noMail} לא נמצא מייל, ופניתי ל-${sent}${names.length ? ': ' + names.join(', ') : ''}.`);
     } catch (e) { console.error('campaign', e.message); tell(`אדוני, סבב הפניות ל-${kind} ב-${place} נעצר בגלל תקלה אחרי ${sent} פניות.`); }
     finally { campaigns.delete(id); }
   })();
   return `התחלתי סבב: מחפשת ${kind} ב-${place} בלי אתר ועם מייל, בונה לכל אחד אתר דוגמה ופונה לעד ${want}. זה לוקח כמה דקות, ואודיע כשיסתיים.`;
 }
+
+// ---------- a working shift: she keeps running rounds by herself inside the hours he set ----------
+const KINDS = ['barber shop', 'hair salon', 'nail salon', 'auto repair shop', 'landscaping service', 'house cleaning service', 'pet groomer', 'tattoo shop', 'bakery', 'florist',
+  'tailor', 'locksmith', 'handyman', 'painter', 'roofing contractor', 'plumber', 'electrician', 'towing service', 'food truck', 'massage therapist', 'photographer', 'personal trainer', 'car detailing', 'daycare'];
+const PLACES = ['Austin, Texas', 'Tampa, Florida', 'Columbus, Ohio', 'Phoenix, Arizona', 'Charlotte, North Carolina', 'Nashville, Tennessee', 'Kansas City, Missouri', 'Sacramento, California', 'Orlando, Florida', 'San Antonio, Texas',
+  'Indianapolis, Indiana', 'Jacksonville, Florida', 'Fort Worth, Texas', 'Oklahoma City, Oklahoma', 'Louisville, Kentucky', 'Memphis, Tennessee', 'Tucson, Arizona', 'Fresno, California', 'Omaha, Nebraska', 'Raleigh, North Carolina',
+  'Albuquerque, New Mexico', 'Tulsa, Oklahoma', 'Bakersfield, California', 'El Paso, Texas', 'Baton Rouge, Louisiana', 'Greensboro, North Carolina', 'Knoxville, Tennessee', 'Birmingham, Alabama', 'Spokane, Washington', 'Boise, Idaho'];
+const ilNow = () => { const d = new Date(), o = { timeZone: 'Asia/Jerusalem' }; return { day: d.toLocaleDateString('en-CA', o), hour: Number(d.toLocaleString('en-GB', { ...o, hour: '2-digit', hour12: false })) }; };
+export function salesShift(from, to, lookups) {
+  const st = S(), f = Math.max(0, Math.min(23, Math.round(Number(from)))), t = Math.max(1, Math.min(24, Math.round(Number(to))));
+  if (!(t > f)) return 'שעת הסיום צריכה להיות אחרי שעת ההתחלה.';
+  const now = ilNow(); let day = now.day;
+  if (now.hour >= t) { const d = new Date(Date.now() + DAY); day = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); }
+  st.on = true; st.shift = { day, from: f, to: t, max: Math.max(20, Math.min(600, Math.round(Number(lookups) || 300))), looked: 0, sent: 0, i: Math.floor(Math.random() * 1000), done: false };
+  save();
+  return `נקבעה משמרת מכירות ב-${day}, מ-${f}:00 עד ${t}:00 שעון ישראל. אבדוק עד ${st.shift.max} עסקים ואפנה לעד ${st.cap} מהם (התקרה היומית). בסוף המשמרת אשלח דוח.` + (ADDRESS() ? '' : ' שימו לב: כתובת הדואר (SALES_ADDRESS) עדיין חסרה, ובלעדיה לא אוכל לפנות לאף עסק.');
+}
+async function shiftTick() {
+  const st = S(), sh = st.shift; if (!sh || sh.done) return;
+  const now = ilNow();
+  if (now.day < sh.day || (now.day === sh.day && now.hour < sh.from)) return;
+  const over = now.day > sh.day || now.hour >= sh.to;
+  if (st.day !== today()) { st.day = today(); st.sent = 0; }
+  if (over || !st.on || sh.looked >= sh.max || st.sent >= st.cap) {
+    if (campaigns.size) return;                              // let the running round finish first
+    sh.done = true; save();
+    const all = leads().filter(l => l.thread && !l.test && (l.contactedAt || 0) > Date.now() - DAY);
+    tell(`אדוני, משמרת המכירות הסתיימה. בדקתי ${sh.looked} עסקים בלי אתר, ופניתי במייל ל-${sh.sent} שנמצאה להם כתובת. עד עכשיו ענו ${all.filter(l => (l.log || []).some(x => x.who === 'them')).length}, ו-${all.filter(l => ['agreed', 'paid', 'done'].includes(l.status)).length} הסכימו לקנות. התשובות ממשיכות להיענות לבד גם אחרי המשמרת.` +
+      (!st.on ? ' המשמרת נעצרה כי התוכנית כובתה.' : !ADDRESS() ? ' לא יצאה אף פנייה כי כתובת הדואר חסרה.' : ''), null, true);
+    return;
+  }
+  if (campaigns.size || !ADDRESS() || !leadsOn()) return;
+  const kind = KINDS[sh.i % KINDS.length], place = PLACES[Math.floor(sh.i / KINDS.length + sh.i * 7) % PLACES.length]; sh.i++; save();
+  salesCampaign(kind, place, { n: Math.min(10, st.cap - st.sent), quiet: true });
+}
+setTimeout(() => { setInterval(() => shiftTick().catch(e => console.error('sales shift', e.message)), 60000).unref(); }, 50000).unref();
