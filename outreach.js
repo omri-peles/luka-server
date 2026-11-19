@@ -34,6 +34,11 @@ const money = n => (Math.round(Number(n) * 100) / 100).toFixed(2);
 const slugOf = l => l.slug || String(l.site || '').split('/sites/')[1] || '';
 const tell = (text, l, phone) => announce(text, l ? { title: l.name, note: text.replace(/^אדוני, /, '').slice(0, 160), ...(l.site ? { link: l.site } : {}) } : undefined, l && l.site, !!phone);
 
+async function ringOnce(flag, text, l) {
+  const st = S(); if (l && l.test) return; if (st[flag]) return; st[flag] = Date.now(); save();
+  try { const p = await import('./phone.js'); const r = await p.callOwner(text); if (!r || !r.ok) { let x = await p.whatsappOwner(text); if (!x || !x.ok) await p.smsOwner(text); } }
+  catch (e) { console.error('ring owner', e.message); }
+}
 // ---------- the model ----------
 async function ask(system, user, { search = false, max = 1500, model = 'claude-sonnet-5-5' } = {}) {
   const body = { model, max_tokens: max, system, messages: [{ role: 'user', content: user }],
@@ -71,6 +76,12 @@ async function findEmail(l) {
     `Business: ${l.name}\nType: ${l.type}\nAddress: ${l.address}\nPhone: ${l.phone}`, { search: true, max: 600, model: 'claude-haiku-5-5' }));
   const email = out && typeof out.email === 'string' ? out.email.trim().toLowerCase() : '';
   if (!email || !okMail(email)) return '';
+  // An address on the business's own domain usually means it does have a website that Google Maps simply does not list: then there is nothing to offer.
+  const dom = email.split('@')[1];
+  if (!/^(gmail|googlemail|yahoo|ymail|hotmail|outlook|live|msn|aol|icloud|me|mac|comcast|att|verizon|sbcglobal|bellsouth|cox|charter|protonmail|proton|mail|gmx|zoho)\./i.test(dom)) {
+    try { const r = await fetch('https://' + dom, { signal: AbortSignal.timeout(9000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0' } });
+      if (r.ok && /text\/html/i.test(r.headers.get('content-type') || '') && (await r.text()).length > 1500) { l.status = 'hassite'; l.ownSite = dom; return ''; } } catch (e) {}
+  }
   // Keep it only if it can be tied to the business: the address is on the page it was said to be on, or it carries the business's own name.
   let onPage = false;
   if (out.source && /^https:\/\//.test(out.source)) {
@@ -199,7 +210,7 @@ async function contact(l) {
     `Business name: ${l.name}\nType: ${l.type}\nCity/address: ${l.address}\nGoogle rating: ${l.rating} from ${l.reviews} reviews\nDemo link: ${site}`, { max: 700 }));
   if (!m || !m.subject || !m.body || !String(m.body).includes(site)) return `לא הצלחתי לנסח מייל אל ${l.name}.`;
   l.subject = String(m.subject).slice(0, 140);
-  await send(l, l.subject, String(m.body));
+  await send(l, l.subject, /\bAI\b/.test(String(m.body)) ? String(m.body) : String(m.body).replace(/\b(an|your|a) assistant\b/i, 'an AI assistant'));
   l.status = 'contacted'; l.contactedAt = Date.now(); l.replies = 0; if (!l.test) st.sent++; save();
   return `פניתי במייל אל ${l.name} (${l.email}) עם אתר הדוגמה.`;
 }
@@ -261,6 +272,7 @@ Reply with JSON only: {"reply":"","offer":0,"action":"none|invoice|edit|lost|esc
               : `אדוני, ${l.name} הסכים לקנות את האתר ב-${price} דולר${three ? ' בשלושה תשלומים' : ''}, אבל אין לי קישור תשלום לשלוח לו. צריך לשלוח לו דרישת תשלום ידנית.`, l, true);
   }
   reply = reply.replace(/\{PAY_LINK\}/g, '');
+  if (text && !l.test) ringOnce('rangTalk', `אדוני, יש משא ומתן אמיתי ראשון בתוכנית המכירות. ${l.name} ענה למייל, ואני מנהלת איתו את ההתכתבות לבד. כל הפרטים בתיבת המייל שלך.`, l);
   const ref = msgId || '';
   await send(l, 'Re: ' + (l.subject || 'your website'), reply, { replyTo: ref });
   if (action === 'lost') { l.status = 'lost'; tell(`אדוני, ${l.name} לא מעוניין באתר. סגרתי את הפנייה.`, l); }
@@ -274,6 +286,7 @@ async function paid(l, due) {
   due.paid = Date.now(); save();
   const sites = (l.dues || []).filter(x => x.kind === 'site'), all = sites.every(x => x.paid);
   tell(`אדוני, PayPal אישר תשלום של ${money(due.amount)} דולר מ-${l.name}.`, l, true);
+  ringOnce('rangPaid', `אדוני, התקבל התשלום הראשון בתוכנית המכירות: ${money(due.amount)} דולר מ-${l.name}. אני מוסרת לו את האתר.`, l);
   if (due.kind !== 'site') { l.dues.push({ at: due.at + 30 * DAY, amount: due.amount, label: due.label, kind: 'maint' }); save(); return; }
   if (!l.live) {                                           // first confirmed payment: the demo becomes the real site
     try { await quietEdit(slugOf(l), 'Remove the demo bar at the top of the page and remove the robots noindex meta tag.'); } catch (e) { console.error('finalise', l.key, e.message); }
@@ -436,7 +449,8 @@ export function salesShift(from, to, lookups) {
   if (!(t > f)) return 'שעת הסיום צריכה להיות אחרי שעת ההתחלה.';
   const now = ilNow(); let day = now.day;
   if (now.hour >= t) { const d = new Date(Date.now() + DAY); day = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); }
-  st.on = true; st.shift = { day, from: f, to: t, max: Math.max(20, Math.min(600, Math.round(Number(lookups) || 300))), looked: 0, sent: 0, i: Math.floor(Math.random() * 1000), done: false };
+  const prev = st.shift && !st.shift.done && st.shift.day === day ? st.shift : null;
+  st.on = true; st.shift = { day, from: f, to: t, max: Math.max(20, Math.min(900, Math.round(Number(lookups) || 300))), looked: prev ? prev.looked : 0, sent: prev ? prev.sent : 0, i: prev ? prev.i : Math.floor(Math.random() * 1000), done: false };
   save();
   return `נקבעה משמרת מכירות ב-${day}, מ-${f}:00 עד ${t}:00 שעון ישראל. אבדוק עד ${st.shift.max} עסקים ואפנה לעד ${st.cap} מהם (התקרה היומית). בסוף המשמרת אשלח דוח.` + (ADDRESS() ? '' : ' שימו לב: כתובת הדואר (SALES_ADDRESS) עדיין חסרה, ובלעדיה לא אוכל לפנות לאף עסק.');
 }
