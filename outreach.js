@@ -71,7 +71,9 @@ async function askObj(system, user, props, max = 1200) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
   const b = (j.content || []).find(x => x.type === 'tool_use');
-  return b && b.input && typeof b.input === 'object' ? b.input : null;
+  if (b && b.input && typeof b.input === 'object') return b.input;
+  const txt = (j.content || []).filter(x => x.type === 'text').map(x => x.text).join('').trim();
+  return json(txt) || (txt ? { __text: txt, __stop: j.stop_reason } : { __empty: true, __stop: j.stop_reason });
 }
 const json = t => {
   const m = String(t || '').match(/\{[\s\S]*\}/); if (!m) return null;
@@ -248,9 +250,11 @@ async function contact(l) {
     `שם העסק: ${l.name}${l.type ? '\nסוג: ' + l.type : ''}${l.address ? '\nכתובת: ' + l.address : ''}${l.rating ? `\nדירוג בגוגל: ${l.rating} מתוך ${l.reviews} ביקורות` : '\n(אין דירוג: לא להזכיר דירוג.)'}`, MAILP, 700) : askObj(
     `You are Luka, an AI assistant working for ${NAME()}, who builds websites for small local businesses. Write the first email to a business owner you have never spoken to. It must read like a short personal note from one person to another, not like marketing: plain text, under 70 words, no links, no prices, no emojis, no exclamation marks, and none of these words: free, offer, deal, discount, guarantee, limited, promotion, click. Say honestly: you are an AI assistant working for ${NAME()}, you saw their business on Google Maps with its real rating, noticed it has no website, and put together a demo site for it. Ask one simple question: would they like you to send the link so they can take a look. Do not add a signature, a postal address or an unsubscribe line: those are added automatically. Reply with JSON only: {"subject":"","body":""}. The subject is short, specific to the business and plain, like something a person would type (no "Re:", no sales words).`,
     `Business name: ${l.name}${l.type ? '\nType: ' + l.type : ''}${l.address ? '\nCity/address: ' + l.address : ''}${l.rating ? `\nGoogle rating: ${l.rating} from ${l.reviews} reviews` : '\n(No rating on hand: do not mention a rating.)'}`, MAILP, 700);
-  const good = x => x && x.subject && x.body && !/https?:\/\//i.test(String(x.body));
-  let m = await compose(); if (!good(m)) m = await compose();
-  if (!good(m)) return `לא הצלחתי לנסח מייל אל ${l.name}.`;
+  // If the model answered in plain text instead of the fields, the text is the note itself.
+  const norm = x => (x && x.__text && !x.body) ? { subject: T(l, `A quick question about ${l.name}`, `שאלה קצרה לגבי ${l.name}`), body: x.__text.replace(/^\s*(subject|נושא)\s*:.*\n+/i, '') } : x;
+  const good = x => x && x.subject && x.body && String(x.body).trim().length > 40 && !/https?:\/\//i.test(String(x.body));
+  let m = norm(await compose()); if (!good(m)) m = norm(await compose());
+  if (!good(m)) return `לא הצלחתי לנסח מייל אל ${l.name} (${!m ? 'אין תשובה' : m.__empty ? 'תשובה ריקה, ' + m.__stop : /https?:\/\//i.test(String(m.body || '')) ? 'היה קישור בנוסח' : 'חסר נושא או גוף: ' + JSON.stringify(m).slice(0, 160)}).`;
   l.introOnly = true;
   l.subject = String(m.subject).slice(0, 140);
   await send(l, l.subject, IL(l) ? (/AI|בינה מלאכותית/.test(String(m.body)) ? String(m.body) : String(m.body).replace(/לוקה/, 'לוקה, עוזרת AI')) : /\bAI\b/.test(String(m.body)) ? String(m.body) : /\b(an|a) assistant\b/i.test(String(m.body)) ? String(m.body).replace(/\b(an|a) assistant\b/i, 'an AI assistant') : String(m.body).replace(/\bLuka\b/, 'Luka, an AI assistant'));
