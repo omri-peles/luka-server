@@ -156,7 +156,7 @@ async function send(l, subject, text, { replyTo = '', attach = null } = {}) {
   // Hebrew goes out as right-to-left HTML (with the plain text beside it): as bare text, lines that mix Hebrew with words like AI or PayPal come out scrambled.
   const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = '<div dir="rtl" style="direction:rtl;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6">' +
-    esc(body).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" dir="ltr">$1</a>').replace(/\r?\n/g, '<br>\n') + '</div>';
+    esc(body).split(/\r?\n/).map(line => { const h = line.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" dir="ltr">$1</a>'); return /[\u0590-\u05FF]/.test(line) || !line.trim() ? h : '<span dir="ltr" style="unicode-bidi:isolate">' + h + '</span>'; }).join('<br>\n') + '</div>';
   const textPart = ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(body)];
   const ab = 'lukaalt' + Date.now().toString(36);
   const content = IL(l)
