@@ -95,7 +95,9 @@ async function findEmail(l) {
   const known = /(^|\.)(facebook|instagram|yelp|yellowpages|mapquest|bbb|nextdoor|linkedin|thumbtack|manta|chamberofcommerce|birdeye|alignable|google|tiktok|booksy|vagaro|squareup|square\.site|styleseat|care)\.[a-z.]+$/i;
   let host = ''; try { host = new URL(out.source).hostname; } catch (e) {}
   // Too many personal-looking addresses bounced: the address itself must carry the business's name, and be tied to a real page.
-  if (!named || !(onPage || known.test(host))) return '';
+  // Addresses the search only "remembered" kept bouncing. Now the address must literally appear on a page that was fetched just now, carry the business's name, and sit on a domain that accepts mail.
+  if (!named || !onPage) return '';
+  try { const dns = await import('dns'); const mx = await dns.promises.resolveMx(email.split('@')[1]); if (!mx || !mx.length) return ''; } catch (e) { return ''; }
   l.emailSource = String(out.source || '').slice(0, 200);
   return email;
 }
