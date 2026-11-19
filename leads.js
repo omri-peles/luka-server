@@ -13,21 +13,22 @@ const FIELDS = ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 
 export function leads() { const s = load(); if (!Array.isArray(s.leads)) s.leads = []; return s.leads; }
 const building = new Set();
 
-async function search(query, pageToken) {
+async function search(query, pageToken, il) {
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST', signal: AbortSignal.timeout(20000),
     headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': KEY(), 'X-Goog-FieldMask': FIELDS },
-    body: JSON.stringify({ textQuery: query, languageCode: 'en', pageSize: 20, ...(pageToken ? { pageToken } : {}) })
+    body: JSON.stringify({ textQuery: query, languageCode: il ? 'he' : 'en', ...(il ? { regionCode: 'IL' } : {}), pageSize: 20, ...(pageToken ? { pageToken } : {}) })
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
   return j;
 }
 
-export async function searchLeads(place, kind, want) {
+export async function searchLeads(place, kind, want, market) {
+  const il = market === 'il';
   const list = leads(), found = []; let token = '', seen = 0;
   for (let page = 0; page < 3 && found.length < want; page++) {
-    const j = await search(kind + ' in ' + place, token);
+    const j = await search(il ? kind + ' ב' + place : kind + ' in ' + place, token, il);
     for (const p of j.places || []) {
       seen++;
       if (p.websiteUri || (p.businessStatus && p.businessStatus !== 'OPERATIONAL') || (p.userRatingCount || 0) < 5) continue;
@@ -35,7 +36,7 @@ export async function searchLeads(place, kind, want) {
       const lead = { id: p.id, key: crypto.randomBytes(3).toString('hex'), name: (p.displayName && p.displayName.text) || '', type: (p.primaryTypeDisplayName && p.primaryTypeDisplayName.text) || kind,
         address: p.formattedAddress || '', phone: p.nationalPhoneNumber || p.internationalPhoneNumber || '', rating: p.rating || 0, reviews: p.userRatingCount || 0,
         hours: (p.regularOpeningHours && p.regularOpeningHours.weekdayDescriptions) || [], about: (p.editorialSummary && p.editorialSummary.text) || '',
-        maps: p.googleMapsUri || '', status: 'found', site: '', at: Date.now() };
+        maps: p.googleMapsUri || '', status: 'found', site: '', at: Date.now(), ...(il ? { market: 'il' } : {}) };
       if (!lead.name) continue;
       list.push(lead); found.push(lead);
       if (found.length >= want) break;
@@ -56,7 +57,7 @@ export async function findLeads(place, kind, count) {
   if (!leadsOn()) return 'החיפוש במפות לא מחובר: חסר המפתח GOOGLE_MAPS_KEY בשרת.';
   if (!place || !kind) return 'לא חיפשתי: צריך סוג עסק (באנגלית, למשל barber shop) ומקום (עיר ומדינה בארצות הברית).';
   let found, seen;
-  try { ({ found, seen } = await searchLeads(place, kind, want)); } catch (e) { return 'החיפוש במפות נכשל: ' + String(e.message || e).slice(0, 200); }
+  try { ({ found, seen } = await searchLeads(place, kind, want, /[\u0590-\u05FF]/.test(kind + place) ? 'il' : 'us')); } catch (e) { return 'החיפוש במפות נכשל: ' + String(e.message || e).slice(0, 200); }
   if (!found.length) return `עברתי על ${seen} עסקים מסוג ${kind} ב-${place} ולא מצאתי חדשים שיש להם ביקורות ואין להם אתר. אפשר לנסות סוג עסק אחר או עיר אחרת.`;
   return `מצאתי ${found.length} עסקים עם ביקורות ובלי אתר (מתוך ${seen} שנבדקו):\n` + found.map(l =>
     `- ${l.name} (קוד ${l.key}): ${l.type}, ${l.address}. דירוג ${l.rating} מתוך ${l.reviews} ביקורות. טלפון: ${l.phone || 'לא רשום'}.`).join('\n') +
@@ -66,6 +67,18 @@ export async function findLeads(place, kind, count) {
 export function pick(q) { q = (q || '').toString().trim().toLowerCase(); return leads().find(l => l.key === q) || leads().find(l => l.name.toLowerCase() === q) || leads().find(l => q.length > 2 && l.name.toLowerCase().includes(q)); }
 
 function brief(l) {
+  if (l.market === 'il') return `בני אתר של עמוד אחד בעברית (<html lang="he" dir="rtl">, גופן Heebo או Assistant מ-Google Fonts) לעסק מקומי אמיתי בישראל.
+השתמשי אך ורק בעובדות שלמטה. אל תמציאי מחירים, רשימת שירותים, שמות עובדים, המלצות, שנות ותק או כל פרט שלא מופיע כאן; כשחסר פרט, כתבי באופן כללי או השמיטי (בלי סוגריים מרובעים).
+שם העסק: ${l.name}
+סוג העסק: ${l.type}
+כתובת: ${l.address}
+טלפון: ${l.phone || 'לא רשום (בלי כפתורי טלפון)'}
+דירוג בגוגל: ${l.rating} מתוך ${l.reviews} ביקורות (להציג כעובדה; לא לצטט ולא להמציא טקסט של ביקורות)
+שעות פתיחה: ${l.hours.length ? l.hours.join('; ') : 'לא רשומות (להשמיט)'}
+${l.about ? 'תיאור קצר: ' + l.about : ''}
+${l.maps ? 'קישור Google Maps לכפתור "הוראות הגעה": ' + l.maps : ''}
+חלקים: פתיח עם שם העסק וכפתור חיוג ברור (קישור tel:), מה העסק מציע במונחים כלליים לסוגו, תג דירוג, שעות, מיקום עם כפתור הוראות הגעה, תחתית עם פרטי קשר.
+חובה: להוסיף <meta name="robots" content="noindex,nofollow"> ופס דק ובולט בראש העמוד עם הטקסט: "אתר הדגמה שהוכן עבור ${l.name}. זה אינו האתר הרשמי של העסק."`;
   return `Build a one-page website in ENGLISH (<html lang="en" dir="ltr">, an English Google Font) for this real local business in the United States.
 Use ONLY the facts below. Do not invent prices, services lists, staff names, testimonials, years in business or anything else that is not listed; where a detail is missing, write generally or leave it out (no bracket placeholders).
 Business name: ${l.name}
