@@ -28,8 +28,8 @@ export function bookingKind(l) {
 export function bookingBrief(l) {
   const k = bookingKind(l); if (!k) return '';
   return l.market === 'il'
-    ? `\nהזמנה מקוונת: הוסיפי חלק בולט עם id="book" וכותרת "${k === 'table' ? 'הזמנת שולחן' : 'קביעת תור'}", ובתוכו תיבה ריקה אחת בדיוק: <div id="luka-booking"></div>. טופס ההזמנה עצמו נכנס לתיבה הזו אוטומטית, אז אל תבני טופס ואל תכתבי בה כלום. בפתיח הוסיפי, לצד כפתור החיוג, כפתור "${k === 'table' ? 'הזמנת שולחן' : 'קביעת תור'}" שמוביל אל #book.`
-    : `\nOnline booking: add a prominent section with id="book" and the heading "${k === 'table' ? 'Book a table' : 'Book an appointment'}", containing exactly one empty box: <div id="luka-booking"></div>. The booking form itself is inserted into that box automatically, so do not build a form and leave the box empty. In the hero, next to the call button, add a "${k === 'table' ? 'Book a table' : 'Book an appointment'}" button that links to #book.`;
+    ? `\nהזמנה מקוונת: הוסיפי חלק בולט עם id="book" וכותרת "${k === 'table' ? 'הזמנת שולחן' : 'קביעת תור'}", ובתוכו תיבה ריקה אחת בדיוק: <div id="luka-booking"></div>. טופס ההזמנה עצמו נכנס לתיבה הזו אוטומטית, אז אל תבני טופס ואל תכתבי בה כלום. התיבה מביאה איתה כרטיס לבן משלה, אז אל תעטפי אותה בכרטיס, מסגרת או רקע משלך. בפתיח הוסיפי, לצד כפתור החיוג, כפתור "${k === 'table' ? 'הזמנת שולחן' : 'קביעת תור'}" שמוביל אל #book.`
+    : `\nOnline booking: add a prominent section with id="book" and the heading "${k === 'table' ? 'Book a table' : 'Book an appointment'}", containing exactly one empty box: <div id="luka-booking"></div>. The booking form itself is inserted into that box automatically, so do not build a form and leave the box empty. The box brings its own white card, so do not wrap it in a card, border or background of your own. In the hero, next to the call button, add a "${k === 'table' ? 'Book a table' : 'Book an appointment'}" button that links to #book.`;
 }
 
 // Makes sure the page of this business carries the box and the script (also after the page was edited).
