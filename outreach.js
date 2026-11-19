@@ -150,6 +150,33 @@ async function invoice(l, due) {
   due.invoice = id; due.link = (d.detail && d.detail.metadata && d.detail.metadata.recipient_view_url) || ''; due.sentAt = Date.now(); save();
   return due.link;
 }
+const meLink = amount => { const u = String(S().paypalMe || '').replace(/^https?:\/\//i, '').replace(/^(www\.)?paypal\.me\//i, '').replace(/[^A-Za-z0-9._-]/g, ''); return u ? `https://paypal.me/${u}/${money(amount)}USD` : ''; };
+const payOn = () => paypalOn() || !!meLink(1);
+// Has PayPal itself written to the owner that this amount arrived? Only a mail that Gmail marked as really signed by paypal.com counts.
+async function paidByMail(l, due) {
+  const amount = money(due.amount), g = gmail();
+  const res = await g.users.messages.list({ userId: 'me', q: `from:paypal.com "${amount}" after:${Math.floor((due.sentAt || Date.now()) / 1000) - 60}`, maxResults: 10 });
+  const st = S(); if (!Array.isArray(st.usedPay)) st.usedPay = [];
+  const sameAmount = leads().filter(x => (x.dues || []).some(d => !d.paid && d.manual && d.link && money(d.amount) === amount)).length;
+  for (const m of res.data.messages || []) {
+    if (st.usedPay.includes(m.id)) continue;
+    const full = await g.users.messages.get({ userId: 'me', id: m.id, format: 'full' });
+    const hs = (full.data.payload && full.data.payload.headers) || [], H = k => hs.filter(x => x.name.toLowerCase() === k).map(x => x.value).join(' ');
+    const from = (H('from').match(/<([^>]+)>/) || [, H('from')])[1].trim().toLowerCase();
+    if (!/@([a-z0-9-]+\.)*paypal\.com$/.test(from)) continue;
+    if (!/dkim=pass[^;]*header\.[id]=@?([a-z0-9-]+\.)*paypal\.com/i.test(H('authentication-results'))) continue;
+    const text = (H('subject') + ' ' + (bodyText(full.data.payload) || full.data.snippet || '')).replace(/\s+/g, ' ');
+    if (!text.includes(amount) || !/USD|\$/.test(text)) continue;
+    if (!/(sent you|you received|you've got|you have received|payment received|received a payment|קיבלת|שלח לך|שלחה לך|התקבל)/i.test(text)) continue;
+    if (/(refund|you sent|request(ed)? money|money request|החזר|שלחת|בקשת תשלום|ביקש)/i.test(text)) continue;
+    const low = text.toLowerCase(), words = l.name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 4);
+    const theirs = low.includes(l.email) || words.some(w => low.includes(w));
+    if (!theirs && sameAmount > 1) continue;                 // two open deals for the same sum: the mail must name this one
+    st.usedPay = [...st.usedPay, m.id].slice(-200); save();
+    return true;
+  }
+  return false;
+}
 const isPaid = async id => { const d = await pp('/v2/invoicing/invoices/' + id); return d.status === 'PAID' || d.status === 'MARKED_AS_PAID'; };
 
 // ---------- first contact ----------
@@ -228,9 +255,10 @@ Reply with JSON only: {"reply":"","offer":0,"action":"none|invoice|edit|lost|esc
     l.status = 'agreed';
     let link = '';
     if (paypalOn()) { try { link = await invoice(l, l.dues[0]); } catch (e) { console.error('invoice', l.key, e.message); } }
-    reply = reply.replace(/\{PAY_LINK\}/g, link || `(the PayPal invoice will reach this email address shortly)`);
-    tell(link ? `אדוני, ${l.name} הסכים לקנות את האתר ב-${price} דולר${three ? ' בשלושה תשלומים' : ''}. שלחתי לו חשבונית PayPal.`
-              : `אדוני, ${l.name} הסכים לקנות את האתר ב-${price} דולר${three ? ' בשלושה תשלומים' : ''}, אבל לא הצלחתי להוציא חשבונית PayPal. צריך לשלוח לו אותה ידנית.`, l, true);
+    else if (meLink(1)) { const d0 = l.dues[0]; link = d0.link = meLink(d0.amount); d0.manual = true; d0.sentAt = Date.now(); }
+    reply = reply.replace(/\{PAY_LINK\}/g, link || `(the PayPal payment link will reach this email address shortly)`);
+    tell(link ? `אדוני, ${l.name} הסכים לקנות את האתר ב-${price} דולר${three ? ' בשלושה תשלומים' : ''}. שלחתי לו קישור תשלום ב-PayPal.`
+              : `אדוני, ${l.name} הסכים לקנות את האתר ב-${price} דולר${three ? ' בשלושה תשלומים' : ''}, אבל אין לי קישור תשלום לשלוח לו. צריך לשלוח לו דרישת תשלום ידנית.`, l, true);
   }
   reply = reply.replace(/\{PAY_LINK\}/g, '');
   const ref = msgId || '';
@@ -290,11 +318,13 @@ async function tick() {
             if (text) await answer(l, text, H(theirs[theirs.length - 1], 'message-id'));
           }
         }
-        if (paypalOn() && ['agreed', 'paid'].includes(l.status)) {
+        if (payOn() && ['agreed', 'paid'].includes(l.status)) {
           for (const due of l.dues || []) {
-            if (due.paid) continue;
-            if (!due.invoice && due.at <= Date.now()) await invoice(l, due);
-            else if (due.invoice && await isPaid(due.invoice)) await paid(l, due);
+            if (due.paid || due.at > Date.now()) continue;
+            if (!due.invoice && !due.link) {
+              if (paypalOn()) await invoice(l, due);
+              else { due.link = meLink(due.amount); due.manual = true; due.sentAt = Date.now(); save(); await send(l, 'Re: ' + (l.subject || 'your website'), `${due.label} is due: $${money(due.amount)}. You can pay here:\n${due.link}`); }
+            } else if (due.invoice ? await isPaid(due.invoice) : (Date.now() - (due.checked || 0) > 3 * 60000 && (due.checked = Date.now()) && await paidByMail(l, due))) await paid(l, due);
           }
         }
       } catch (e) { console.error('sales', l.key, e.message); }
@@ -308,15 +338,25 @@ export function salesProgram(action, o = {}) {
   const st = S();
   if (action === 'start') { st.on = true; save(); return 'תוכנית המכירות פועלת. ' + salesStatus(); }
   if (action === 'stop') { st.on = false; save(); return 'תוכנית המכירות נעצרה: לא יוצאות פניות, תשובות או חשבוניות עד שתופעל שוב.'; }
+  if (action === 'mark_paid') return markPaid(o.lead);
   if (action === 'shift') return salesShift(o.shift_from, o.shift_to, o.shift_lookups);
   if (action === 'set') {
     const n = k => Number.isFinite(Number(o[k])) && Number(o[k]) > 0 ? Math.round(Number(o[k])) : 0;
     if (n('ask')) st.prices.ask = n('ask'); if (n('floor')) st.prices.floor = n('floor'); if (n('maintenance')) st.prices.maint = n('maintenance');
     if (st.prices.floor > st.prices.ask) st.prices.floor = st.prices.ask;
     if (n('daily_cap')) st.cap = Math.min(100, n('daily_cap'));
+    if (o.paypal_me) st.paypalMe = String(o.paypal_me).trim().slice(0, 80);
     save(); return 'עודכן. ' + salesStatus();
   }
   return salesStatus();
+}
+async function markPaidNow(l) { const due = (l.dues || []).find(d => !d.paid && d.at <= Date.now() + DAY); if (!due) return false; await paid(l, due); return true; }
+function markPaid(q) {
+  const n = (q || '').toString().trim().toLowerCase(), open = leads().filter(x => x.thread && (x.dues || []).some(d => !d.paid));
+  const l = open.find(x => x.key === n) || (n && open.slice().reverse().find(x => x.name.toLowerCase().includes(n))) || (!n && open.length === 1 && open[0]);
+  if (!l) return 'לא נמצא עסק עם תשלום פתוח בשם הזה.';
+  markPaidNow(l).catch(e => console.error('mark paid', e.message));
+  return `סימנתי את התשלום של ${l.name} כמשולם לפי דבריו של אדוני, ואני מוסרת לו את האתר.`;
 }
 export function salesStop() { S().on = false; save(); }
 export function salesStatus() {
@@ -324,7 +364,7 @@ export function salesStatus() {
   const got = all.reduce((a, l) => a + (l.dues || []).filter(d => d.paid).reduce((x, d) => x + d.amount, 0), 0);
   return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}. מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש. עד ${st.cap} פניות ביום (היום יצאו ${st.day === today() ? st.sent : 0}). ` +
     `פניות שיצאו: ${all.length}. בהתכתבות: ${c('talking')}. הסכימו וממתינים לתשלום: ${c('agreed')}. שילמו: ${c('paid') + c('done')}. לא מעוניינים: ${c('lost')}. ביקשו הסרה: ${c('optout')}. הועברו אליך: ${c('handoff')}. סך הכול התקבל: ${money(got)} דולר. ` +
-    `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, PayPal ${paypalOn() ? 'מחובר' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
+    `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, תשלום ${paypalOn() ? 'חשבוניות PayPal' : meLink(1) ? 'קישור PayPal.Me, עם אימות לפי המייל של PayPal' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
 }
 export async function contactLead(q) {
   const l = pick(q); if (!l) return 'לא נמצא עסק כזה ברשימה.';
