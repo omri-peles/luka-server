@@ -30,7 +30,7 @@ import { diag } from './watch.js';
 import { callPerson } from './outcall.js';
 import { githubOn, ghRepos, ghList, ghRead, ghSearch, ghWrite } from './github.js';
 import { leadsOn, findLeads, buildLeadSite, leadsText } from './leads.js';
-import { salesProgram, salesCampaign, contactLead, salesTest, salesStop } from './outreach.js';
+import { salesProgram, salesCampaign, contactLead, salesTest, salesStop, salesGuide } from './outreach.js';
 import { spotifyOn, playOnSpotify } from './spotify.js';
 import { setStyle, styleLine, goals, goalsCard, watches } from './notes.js';
 import { videoOn, musicOn, watchVideo, makeMusic } from './media.js';
@@ -206,6 +206,7 @@ const LEAD_TOOLS = [
   { name: 'sales_program', description: 'תוכנית מכירת האתרים לעסקים בארצות הברית: הפעלה, עצירה, מצב ודוח, או עדכון מחירים ותקרה. בתוך התוכנית הזו בלבד יש לך אישור קבוע מאדוני: פנייה במייל לעסקים, התכתבות ומשא ומתן איתם, שליחת חשבונית PayPal ומסירת האתר אחרי שהתשלום אושר, בלי לבקש ממנו אישור בכל פעם. האישור הזה לא חל על שום דבר אחר.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['start', 'stop', 'status', 'set'] }, ask: { type: 'number', description: 'מחיר מבוקש בדולרים' }, floor: { type: 'number', description: 'מחיר מינימום בדולרים' }, maintenance: { type: 'number', description: 'תחזוקה חודשית בדולרים' }, daily_cap: { type: 'number', description: 'כמה פניות ראשונות ביום' } }, required: ['action'] } },
   { name: 'sales_campaign', description: 'סבב פניות במסגרת תוכנית המכירות: מחפשת עסקים מהסוג הזה במקום הזה שאין להם אתר ויש להם כתובת מייל ציבורית, בונה לכל אחד אתר דוגמה ושולחת לו מייל ראשון. רץ ברקע כמה דקות ומדווח בסוף. לא דורש אישור נוסף.', input_schema: { type: 'object', properties: { kind: str('סוג העסק באנגלית'), place: str('עיר ומדינה בארצות הברית, באנגלית'), count: { type: 'number', description: 'לכמה עסקים לפנות, 1 עד 10' } }, required: ['kind', 'place'] } },
   { name: 'contact_lead', description: 'פנייה במייל לעסק אחד מהרשימה במסגרת תוכנית המכירות: מחפשת לו כתובת מייל ציבורית, ואם נמצאה שולחת לו את אתר הדוגמה. לא דורש אישור נוסף.', input_schema: { type: 'object', properties: { lead: str('הקוד של העסק או השם שלו') }, required: ['lead'] } },
+  { name: 'sales_guide', description: 'הנחיה של אדוני להמשך ההתכתבות עם עסק בתוכנית המכירות (למשל: תתקני את מה שאמרת, תציעי מחיר אחר, תתעקשי על המחיר). את כותבת לעסק מיד, בעצמך, בלי לבקש אישור ובלי להראות לו את הנוסח קודם.', input_schema: { type: 'object', properties: { lead: str('הקוד או השם של העסק (אם לא נאמר: ההתכתבות הפעילה האחרונה)'), note: str('ההנחיה של אדוני, במילים שלו') }, required: ['note'] } },
   { name: 'sales_test', description: 'בדיקה של תוכנית המכירות על אדוני עצמו: שולחת את מייל הפנייה לתיבה שלו במקום לעסק, וכל תשובה שלו שם נענית כאילו הוא בעל העסק. שום דבר לא מגיע לעסק אמיתי.', input_schema: { type: 'object', properties: { lead: str('הקוד או השם של עסק מהרשימה שעליו לבדוק (לא חובה)') } } },
   { name: 'leads_list', description: 'רשימת העסקים שנמצאו עד עכשיו, עם הטלפון ואתר הדוגמה של כל אחד.', input_schema: { type: 'object', properties: {} } },
 ];
@@ -286,6 +287,7 @@ async function buildSystem(s, connected) {
     : computerOnline() ? "מחובר דרך הדף בלבד: את יכולה לפתוח בו אתרים (open_on_computer) ולסגור רק לשוניות שאת פתחת (close_on_computer). אפליקציות ועוצמת קול לא זמינות עד שתוכנת העזר תותקן במק."
     : "לא מחובר כרגע.");
   const st = sitesText();
+  if (leadsOn()) sys += "\n\nתוכנית מכירת האתרים: אדוני נתן לך אישור קבוע ומלא לנהל אותה לבד. בתוך התוכנית הזו את לא מבקשת ממנו אישור, לא שואלת אם להמשיך ולא מציגה לו נוסח לפני שליחה: את פשוט עושה ומדווחת בקצרה מה נעשה. המיילים לעסקים, התשובות, המשא ומתן, החשבוניות והמסירה מתנהלים אוטומטית ברקע דרך הכלים של התוכנית (sales_program, sales_campaign, contact_lead, sales_guide). לעולם אל תשתמשי ב-send_email כדי לכתוב לעסק מהתוכנית: כשאדוני נותן הנחיה לגבי עסק, העבירי אותה ב-sales_guide והיא תבוצע מיד. המטרה במשא ומתן: המחיר הגבוה ביותר שהלקוח מוכן לשלם, בלי להפיל את העסקה. האישור הקבוע חל רק על התוכנית הזו; בכל דבר אחר הכללים הרגילים של אישור נשארים.";
   sys += "\n\nבניית אתרים: את יכולה לבנות אתר של דף אחד (build_site) ולשנות אתר קיים (edit_site). חנות עם תשלומים או אתר רב-עמודי עדיין לא אפשריים." + (st ? " האתרים שבנית עד כה, מהישן לחדש:\n" + st : "");
   const mem = memoryText();
   sys += "\n\nהזיכרון האישי שלך על אדוני (נשמר בין שיחות). השתמשי בו בתשובותייך, ושמרי בו דברים חדשים בכלי remember:" + (mem || "\n(עדיין ריק)");
@@ -498,6 +500,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'sales_program' ? salesProgram(inp.action, inp)
             : b.name === 'sales_campaign' ? salesCampaign(inp.kind, inp.place, inp.count)
             : b.name === 'contact_lead' ? await contactLead(inp.lead)
+            : b.name === 'sales_guide' ? await salesGuide(inp.lead, inp.note)
             : b.name === 'sales_test' ? await salesTest(inp.lead)
             : b.name === 'leads_list' ? (leadsText() || 'הרשימה ריקה. עוד לא חיפשתי עסקים.')
             : b.name === 'github_repos' ? await ghRepos()
