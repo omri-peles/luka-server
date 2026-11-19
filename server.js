@@ -112,6 +112,7 @@ app.get('/auth/google', (_req, res) => {
   catch (e) { res.status(500).send('Google OAuth not configured: ' + e.message); }
 });
 app.get('/auth/google/callback', async (req, res) => {
+  if (req.query.state === 'sales') return (await import('./salesbox.js')).salesCallback(req, res);   // the separate sales mailbox
   try {
     await handleCallback(req.query.code);
     res.send('<h2>לוקה חוברה לחשבון Google שלך בהצלחה.</h2><p>אפשר לסגור את החלון.</p>');
@@ -203,6 +204,7 @@ import('./outcall.js').then(m => m.mountOutcall(app)).catch(e => console.error('
 import('./drive.js').then(m => m.mountDrive(app)).catch(e => console.error('drive module', e.message));
 import('./reminders.js').catch(e => console.error('reminders module', e.message));
 import('./outreach.js').catch(e => console.error('sales module', e.message));
+import('./salesbox.js').then(m => m.mountSales(app)).catch(e => console.error('sales mailbox', e.message));
 import('./shopwatch.js').catch(e => console.error('shop watch module', e.message));
 app.get('/images/:id', async (req, res) => {        // pictures Luka made (random, unguessable ids)
   let p = null; try { p = (await import('./imagegen.js')).imagePath(req.params.id); } catch (e) {}

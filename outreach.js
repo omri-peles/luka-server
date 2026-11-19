@@ -15,6 +15,7 @@ import { load, save, get, set, remember } from './store.js';
 import { oauthClient } from './google.js';
 import { announce, readSite, quietEdit } from './sites.js';
 import { leads, pick, searchLeads, ensureSite, leadsOn } from './leads.js';
+import { salesGmail, salesBoxOn, salesBoxAddress } from './salesbox.js';
 
 const KEY = () => process.env.ANTHROPIC_API_KEY || '';
 const NAME = () => (process.env.SALES_NAME || 'Omri Peles').trim();
@@ -29,7 +30,7 @@ function S() {
   if (!s.sales) s.sales = { on: false, cap: 10, day: '', sent: 0, optout: [], prices: { ask: 750, floor: 300, maint: 100 } };
   return s.sales;
 }
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date(Date.now() - 4 * 3600000).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
 const money = n => (Math.round(Number(n) * 100) / 100).toFixed(2);
 const slugOf = l => l.slug || String(l.site || '').split('/sites/')[1] || '';
 const tell = (text, l, phone) => announce(text, l ? { title: l.name, note: text.replace(/^אדוני, /, '').slice(0, 160), ...(l.site ? { link: l.site } : {}) } : undefined, l && l.site, !!phone);
@@ -111,11 +112,14 @@ function gmail() {
 }
 let myAddress = '';
 async function me() { if (!myAddress) myAddress = ((await gmail().users.getProfile({ userId: 'me' })).data.emailAddress || '').toLowerCase(); return myAddress; }
+// New outreach goes out from the separate sales mailbox; threads opened earlier from the owner's own mailbox stay there.
+const boxOf = l => (l.box === 'sales' ? salesGmail() : gmail());
+const fromOf = async l => (l.box === 'sales' ? salesBoxAddress() : await me());
 const b64 = s => Buffer.from(s, 'utf8').toString('base64');
 const footer = (test) => `\n\n--\nLuka, AI assistant to ${NAME()}\n${ADDRESS() || (test ? '[postal address not set yet]' : '')}\nNot interested? Reply "stop" and I will not email you again.`;
 
 async function send(l, subject, text, { replyTo = '', attach = null } = {}) {
-  const from = await me();
+  const from = await fromOf(l);
   const head = [`From: "Luka (assistant to ${NAME()})" <${from}>`, `To: ${l.email}`, `Subject: =?UTF-8?B?${b64(subject)}?=`, 'MIME-Version: 1.0',
     `List-Unsubscribe: <mailto:${from}?subject=stop>`, ...(replyTo ? [`In-Reply-To: ${replyTo}`, `References: ${replyTo}`] : [])];
   const body = text.trim() + footer(l.test);
@@ -126,8 +130,8 @@ async function send(l, subject, text, { replyTo = '', attach = null } = {}) {
       `--${bd}`, `Content-Type: text/html; charset=UTF-8; name="${attach.name}"`, `Content-Disposition: attachment; filename="${attach.name}"`, 'Content-Transfer-Encoding: base64', '',
       b64(attach.content).replace(/(.{76})/g, '$1\r\n'), `--${bd}--`].join('\r\n');
   } else raw = [...head, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64(body)].join('\r\n');
-  const r = await gmail().users.messages.send({ userId: 'me', requestBody: { raw: Buffer.from(raw).toString('base64url'), ...(l.thread ? { threadId: l.thread } : {}) } });
-  l.thread = r.data.threadId; l.mine = [...(l.mine || []), r.data.id]; l.seen = [...(l.seen || []), r.data.id]; hush([r.data.id]);
+  const r = await boxOf(l).users.messages.send({ userId: 'me', requestBody: { raw: Buffer.from(raw).toString('base64url'), ...(l.thread ? { threadId: l.thread } : {}) } });
+  l.thread = r.data.threadId; l.mine = [...(l.mine || []), r.data.id]; l.seen = [...(l.seen || []), r.data.id]; if (l.box !== 'sales') hush([r.data.id]);
   l.log = [...(l.log || []), { who: 'luka', at: Date.now(), text: text.trim().slice(0, 3000) }].slice(-30);
   save();
 }
@@ -210,6 +214,8 @@ async function contact(l) {
     if (st.sent >= st.cap) return `הגעתי לתקרת הפניות להיום (${st.cap}).`;
   }
   if (!gmail()) return 'אין חיבור לחשבון Google.';
+  if (!l.thread && salesBoxOn()) l.box = 'sales';
+  if (!l.test && l.box !== 'sales') return 'לא פניתי: תיבת הפניות הנפרדת עוד לא מחוברת. אדוני צריך להיכנס פעם אחת לכתובת /auth/sales עם החשבון של תיבת הפניות.';
   const site = await ensureSite(l);
   if (!l.test) { const gap = 170000 - (Date.now() - (st.lastFirst || 0)); if (gap > 0) await new Promise(r => setTimeout(r, Math.min(gap, 170000))); st.lastFirst = Date.now(); save(); }
   const p = st.prices;
@@ -348,17 +354,18 @@ let running = false;
 async function tick() {
   if (running || !S().on || !gmail()) return; running = true;
   try {
-    const mine = await me();
     for (const l of leads()) {
       if (!l.thread) continue;
       try {
         if (ACTIVE.includes(l.status) && l.retry) { const r = l.retry; l.retry = null; save(); await answer(l, '', r.msgId, ''); }
         if (ACTIVE.includes(l.status)) {
-          const th = await gmail().users.threads.get({ userId: 'me', id: l.thread, format: 'full' });
+          const box = boxOf(l); if (!box) continue;
+          const mine = await fromOf(l);
+          const th = await box.users.threads.get({ userId: 'me', id: l.thread, format: 'full' });
           const news = (th.data.messages || []).filter(m => !(l.seen || []).includes(m.id));
           if (news.length) {
             l.seen = [...(l.seen || []), ...news.map(m => m.id)].slice(-200); save();
-            hush(news.map(m => m.id));
+            if (l.box !== 'sales') hush(news.map(m => m.id));
             const H = (m, k) => ((m.payload && m.payload.headers) || []).find(x => x.name.toLowerCase() === k)?.value || '';
             const from = m => (H(m, 'from').match(/<([^>]+)>/) || [, H(m, 'from')])[1].trim().toLowerCase();
             if (news.some(m => /mailer-daemon|postmaster/i.test(from(m)))) {
@@ -393,7 +400,8 @@ export function salesProgram(action, o = {}) {
   if (action === 'stop') { st.on = false; save(); return 'תוכנית המכירות נעצרה: לא יוצאות פניות, תשובות או חשבוניות עד שתופעל שוב.'; }
   if (action === 'report') return salesReport();
   if (action === 'mark_paid') return markPaid(o.lead);
-  if (action === 'shift') return salesShift(o.shift_from, o.shift_to, o.shift_lookups);
+  if (action === 'shift') return salesShift(o.shift_from, o.shift_to, o.shift_lookups, !!o.shift_daily);
+  if (action === 'shift_off') { st.daily = null; if (st.shift) st.shift.done = true; save(); return 'המשמרת הקבועה בוטלה. לא יוצאות פניות חדשות עד שתיקבע משמרת, ותשובות מעסקים ממשיכות להיענות.'; }
   if (action === 'set') {
     const n = k => Number.isFinite(Number(o[k])) && Number(o[k]) > 0 ? Math.round(Number(o[k])) : 0;
     if (n('ask')) st.prices.ask = n('ask'); if (n('floor')) st.prices.floor = n('floor'); if (n('maintenance')) st.prices.maint = n('maintenance');
@@ -418,7 +426,7 @@ export function salesStatus() {
   const got = all.reduce((a, l) => a + (l.dues || []).filter(d => d.paid).reduce((x, d) => x + d.amount, 0), 0);
   return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}. מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש. עד ${st.cap} פניות ביום (היום יצאו ${st.day === today() ? st.sent : 0}). ` +
     `פניות שיצאו: ${all.length}. בהתכתבות: ${c('talking')}. הסכימו וממתינים לתשלום: ${c('agreed')}. שילמו: ${c('paid') + c('done')}. לא מעוניינים: ${c('lost')}. ביקשו הסרה: ${c('optout')}. הועברו אליך: ${c('handoff')}. סך הכול התקבל: ${money(got)} דולר. ` +
-    `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, תשלום ${paypalOn() ? 'חשבוניות PayPal' : meLink(1) ? 'קישור PayPal.Me, עם אימות לפי המייל של PayPal' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
+    `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, תיבת פניות ${salesBoxOn() ? salesBoxAddress() : 'לא מחוברת'}, תשלום ${paypalOn() ? 'חשבוניות PayPal' : meLink(1) ? 'קישור PayPal.Me, עם אימות לפי המייל של PayPal' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
 }
 export async function contactLead(q) {
   const l = pick(q); if (!l) return 'לא נמצא עסק כזה ברשימה.';
@@ -485,31 +493,46 @@ const PLACES = ['Austin, Texas', 'Tampa, Florida', 'Columbus, Ohio', 'Phoenix, A
   'Indianapolis, Indiana', 'Jacksonville, Florida', 'Fort Worth, Texas', 'Oklahoma City, Oklahoma', 'Louisville, Kentucky', 'Memphis, Tennessee', 'Tucson, Arizona', 'Fresno, California', 'Omaha, Nebraska', 'Raleigh, North Carolina',
   'Albuquerque, New Mexico', 'Tulsa, Oklahoma', 'Bakersfield, California', 'El Paso, Texas', 'Baton Rouge, Louisiana', 'Greensboro, North Carolina', 'Knoxville, Tennessee', 'Birmingham, Alabama', 'Spokane, Washington', 'Boise, Idaho'];
 const ilNow = () => { const d = new Date(), o = { timeZone: 'Asia/Jerusalem' }; return { day: d.toLocaleDateString('en-CA', o), hour: Number(d.toLocaleString('en-GB', { ...o, hour: '2-digit', hour12: false })) }; };
-export function salesShift(from, to, lookups) {
-  const st = S(), f = Math.max(0, Math.min(23, Math.round(Number(from)))), t = Math.max(1, Math.min(24, Math.round(Number(to))));
-  if (!(t > f)) return 'שעת הסיום צריכה להיות אחרי שעת ההתחלה.';
-  const now = ilNow(); let day = now.day;
-  if (now.hour >= t) { const d = new Date(Date.now() + DAY); day = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }); }
-  const prev = st.shift && !st.shift.done && st.shift.day === day ? st.shift : null;
-  st.on = true; st.shift = { day, from: f, to: t, max: Math.max(20, Math.min(900, Math.round(Number(lookups) || 300))), looked: prev ? prev.looked : 0, sent: prev ? prev.sent : 0, i: prev ? prev.i : Math.floor(Math.random() * 1000), done: false };
-  save();
-  return `נקבעה משמרת מכירות ב-${day}, מ-${f}:00 עד ${t}:00 שעון ישראל. אבדוק עד ${st.shift.max} עסקים ואפנה לעד ${st.cap} מהם (התקרה היומית). בסוף המשמרת אשלח דוח.` + (ADDRESS() ? '' : ' שימו לב: כתובת הדואר (SALES_ADDRESS) עדיין חסרה, ובלעדיה לא אוכל לפנות לאף עסק.');
+// Israel-time hour -> the next moment (ms) at which that hour starts, counted from `after`.
+function nextAt(hour, after) {
+  const d = new Date(after), ilHour = Number(d.toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false })), ilMin = d.getMinutes(), ilSec = d.getSeconds();
+  let diff = ((hour - ilHour + 24) % 24) * 3600000 - ilMin * 60000 - ilSec * 1000;
+  if (diff < 0) diff += 24 * 3600000;
+  return after + diff;
+}
+function openShift(from, to, lookups, startNow) {
+  const st = S(), now = Date.now(), len = ((to - from + 24) % 24 || 24) * 3600000;
+  let start = nextAt(from, now);
+  if (startNow || start - 24 * 3600000 + len > now) start = Math.min(start, now) === now ? now : start;      // already inside today's window: begin now
+  const inside = nextAt(from, now) - 24 * 3600000; const end = (inside + len > now) ? inside + len : start + len;
+  st.shift = { start: (inside + len > now) ? now : start, end, max: Math.max(20, Math.min(900, Math.round(Number(lookups) || 300))), looked: 0, sent: 0, i: Math.floor(Math.random() * 1000), done: false };
+  save(); return st.shift;
+}
+const hhmm = t => new Date(t).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+export function salesShift(from, to, lookups, daily) {
+  const st = S(), f = Math.max(0, Math.min(23, Math.round(Number(from)))), t = Math.max(0, Math.min(24, Math.round(Number(to)))) % 24;
+  if (!Number.isFinite(f) || !Number.isFinite(t) || f === t) return 'צריך שעת התחלה ושעת סיום שונות, בשעון ישראל.';
+  st.on = true;
+  if (daily) { st.daily = { from: f, to: t, lookups: Math.round(Number(lookups) || 300) }; }
+  const sh = openShift(f, t, lookups);
+  return `נקבעה משמרת מכירות${daily ? ' קבועה, כל יום' : ''}: מ-${f}:00 עד ${t}:00 שעון ישראל. הקרובה: ${hhmm(sh.start)} עד ${hhmm(sh.end)}. אבדוק עד ${sh.max} עסקים ואפנה לעד ${st.cap} ביום. בסוף כל משמרת אשלח דוח.` +
+    (ADDRESS() ? '' : ' כתובת הדואר (SALES_ADDRESS) חסרה, ובלעדיה לא אפנה לאף עסק.') + (salesBoxOn() ? '' : ' תיבת הפניות הנפרדת עוד לא מחוברת, ובלעדיה לא אפנה לאף עסק.');
 }
 async function shiftTick() {
-  const st = S(), sh = st.shift; if (!sh || sh.done) return;
-  const now = ilNow();
-  if (now.day < sh.day || (now.day === sh.day && now.hour < sh.from)) return;
-  const over = now.day > sh.day || now.hour >= sh.to;
+  const st = S(); let sh = st.shift; const now = Date.now();
+  if ((!sh || sh.done) && st.daily && st.on) { sh = openShift(st.daily.from, st.daily.to, st.daily.lookups); }       // the standing daily shift re-arms itself
+  if (!sh || sh.done || now < sh.start) return;
   if (st.day !== today()) { st.day = today(); st.sent = 0; }
+  const over = now >= sh.end;
   if (over || !st.on || sh.looked >= sh.max || st.sent >= st.cap) {
     if (campaigns.size) return;                              // let the running round finish first
+    if (!over && st.daily && st.on) return;                  // budget used up before the end: wait quietly for the end of the window
     sh.done = true; save();
-    const all = leads().filter(l => l.thread && !l.test && (l.contactedAt || 0) > Date.now() - DAY);
-    tell(`אדוני, משמרת המכירות הסתיימה. בדקתי ${sh.looked} עסקים בלי אתר, ופניתי במייל ל-${sh.sent} שנמצאה להם כתובת. עד עכשיו ענו ${all.filter(l => (l.log || []).some(x => x.who === 'them')).length}, ו-${all.filter(l => ['agreed', 'paid', 'done'].includes(l.status)).length} הסכימו לקנות. התשובות ממשיכות להיענות לבד גם אחרי המשמרת.` +
-      (!st.on ? ' המשמרת נעצרה כי התוכנית כובתה.' : !ADDRESS() ? ' לא יצאה אף פנייה כי כתובת הדואר חסרה.' : ''), null, true);
+    const all = leads().filter(l => l.thread && !l.test && (l.contactedAt || 0) > sh.start - 60000);
+    if (sh.sent || sh.looked) tell(`אדוני, משמרת המכירות הסתיימה. בדקתי ${sh.looked} עסקים בלי אתר, ופניתי במייל ל-${sh.sent} שנמצאה להם כתובת. עד עכשיו ענו ${all.filter(l => (l.log || []).some(x => x.who === 'them')).length}, ו-${all.filter(l => ['agreed', 'paid', 'done'].includes(l.status)).length} הסכימו לקנות. התשובות ממשיכות להיענות לבד גם אחרי המשמרת.`, null, true);
     return;
   }
-  if (campaigns.size || !ADDRESS() || !leadsOn()) return;
+  if (campaigns.size || !ADDRESS() || !leadsOn() || !salesBoxOn()) return;
   const kind = KINDS[sh.i % KINDS.length], place = PLACES[Math.floor(sh.i / KINDS.length + sh.i * 7) % PLACES.length]; sh.i++; save();
   salesCampaign(kind, place, { n: Math.min(10, st.cap - st.sent), quiet: true });
 }
