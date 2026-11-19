@@ -391,6 +391,7 @@ export function salesProgram(action, o = {}) {
   const st = S();
   if (action === 'start') { st.on = true; save(); return 'תוכנית המכירות פועלת. ' + salesStatus(); }
   if (action === 'stop') { st.on = false; save(); return 'תוכנית המכירות נעצרה: לא יוצאות פניות, תשובות או חשבוניות עד שתופעל שוב.'; }
+  if (action === 'report') return salesReport();
   if (action === 'mark_paid') return markPaid(o.lead);
   if (action === 'shift') return salesShift(o.shift_from, o.shift_to, o.shift_lookups);
   if (action === 'set') {
@@ -513,3 +514,36 @@ async function shiftTick() {
   salesCampaign(kind, place, { n: Math.min(10, st.cap - st.sent), quiet: true });
 }
 setTimeout(() => { setInterval(() => shiftTick().catch(e => console.error('sales shift', e.message)), 60000).unref(); }, 50000).unref();
+
+// ---------- the daily sales summary: the same table every evening ----------
+export function salesReport(dayArg) {
+  const day = dayArg || ilNow().day, inDay = t => t && new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' }) === day;
+  const all = leads().filter(l => l.thread && !l.test), sent = all.filter(l => inDay(l.contactedAt));
+  const bounced = sent.filter(l => l.status === 'bounced').length;
+  const replied = all.filter(l => (l.log || []).some(x => x.who === 'them' && inDay(x.at)));
+  const deals = all.filter(l => l.deal && inDay(l.deal.at));
+  const paidToday = all.reduce((a, l) => a + (l.dues || []).filter(d => inDay(d.paid)).reduce((x, d) => x + d.amount, 0), 0);
+  const lines = [`סיכום מכירות ליום ${day.split('-').reverse().join('.')}`, '',
+    `מיילים שיצאו לעסקים: ${sent.length}`, `חזרו (כתובת לא קיימת או תיבה מלאה): ${bounced}`, `נמסרו: ${sent.length - bounced}`,
+    `תשובות אמיתיות מבעלי עסקים: ${replied.length}`, `עסקאות שנסגרו: ${deals.length}`, `כסף שהתקבל היום: ${money(paidToday)} דולר`];
+  if (deals.length) {
+    lines.push('', 'העסקאות:');
+    for (const l of deals) {
+      const dues = (l.dues || []).filter(d => d.kind === 'site'), got = dues.filter(d => d.paid).length;
+      const how = (l.deal.plan === '3x' ? 'שלושה תשלומים חודשיים' : 'תשלום אחד') + ', ' + (dues.some(d => d.invoice) ? 'חשבונית PayPal' : 'קישור PayPal') + (l.deal.maintenance ? `, ועוד תחזוקה ${S().prices.maint} דולר לחודש` : '');
+      const state = got === dues.length && dues.length ? 'שולם במלואו' : got ? `שולמו ${got} מתוך ${dues.length} תשלומים` : 'ממתין לתשלום';
+      lines.push(`- ${l.name}: ${l.deal.price} דולר. ${how}. ${state}.`, `  האתר: ${l.site || 'אין קישור'}`);
+    }
+  }
+  const talking = replied.filter(l => !deals.includes(l));
+  if (talking.length) { lines.push('', 'בהתכתבות (עוד לא נסגר):'); for (const l of talking) lines.push(`- ${l.name}${l.lastPrice ? ', ההצעה האחרונה ' + l.lastPrice + ' דולר' : ''}`, `  האתר: ${l.site || 'אין קישור'}`); }
+  return lines.join('\n');
+}
+async function dailyTick() {
+  const st = S(), now = ilNow(); if (now.hour !== 21 || st.lastDaily === now.day) return;
+  if (!leads().some(l => l.thread && !l.test)) return;
+  st.lastDaily = now.day; save();
+  const text = salesReport(now.day);
+  try { const p = await import('./phone.js'); let x = await p.whatsappOwner(text); if (!x || !x.ok) await p.smsOwner(text); } catch (e) { console.error('sales daily', e.message); }
+}
+setTimeout(() => { setInterval(() => dailyTick().catch(e => console.error('sales daily', e.message)), 60000).unref(); }, 70000).unref();
