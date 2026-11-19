@@ -94,7 +94,8 @@ async function findEmail(l) {
   const named = tokens.some(w => flat.includes(w));
   const known = /(^|\.)(facebook|instagram|yelp|yellowpages|mapquest|bbb|nextdoor|linkedin|thumbtack|manta|chamberofcommerce|birdeye|alignable|google|tiktok|booksy|vagaro|squareup|square\.site|styleseat|care)\.[a-z.]+$/i;
   let host = ''; try { host = new URL(out.source).hostname; } catch (e) {}
-  if (!onPage && !(named && known.test(host))) return '';
+  // Too many personal-looking addresses bounced: the address itself must carry the business's name, and be tied to a real page.
+  if (!named || !(onPage || known.test(host))) return '';
   l.emailSource = String(out.source || '').slice(0, 200);
   return email;
 }
