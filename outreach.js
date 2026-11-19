@@ -48,6 +48,7 @@ async function ringOnce(flag, text, l) {
   try { const p = await import('./phone.js'); const r = await p.callOwner(text); if (!r || !r.ok) { let x = await p.whatsappOwner(text); if (!x || !x.ok) await p.smsOwner(text); } }
   catch (e) { console.error('ring owner', e.message); }
 }
+let lastEmpty = '';
 // ---------- the model ----------
 async function ask(system, user, { search = false, max = 1500, model = 'claude-sonnet-5-5' } = {}) {
   const body = { model, max_tokens: max, system, messages: [{ role: 'user', content: user }],
@@ -58,22 +59,26 @@ async function ask(system, user, { search = false, max = 1500, model = 'claude-s
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
     if (j.stop_reason === 'pause_turn') { body.messages.push({ role: 'assistant', content: j.content }); continue; }
-    return (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    const out = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    if (!out) lastEmpty = 'stop=' + j.stop_reason + ' blocks=' + (j.content || []).map(b => b.type).join(',') + ' model=' + model;
+    return out;
   }
   return '';
 }
 // A structured answer in plain tags (<reply>...</reply>). Free text inside a tag can hold any quotes, so nothing has to be escaped.
 async function askObj(system, user, props, max = 1200) {
   const names = Object.keys(props);
-  const txt = await ask(system + '\n\nFORMAT: ignore any earlier instruction about JSON. Answer with these tags only, each on its own, nothing before or after them:\n' + names.map(n => `<${n}>...</${n}>`).join('\n') +
-    '\nNumbers as plain digits, yes/no fields as true or false, and leave a tag empty when it does not apply.', user, { max });
+  const fmt = '\n\nFORMAT: ignore any earlier instruction about JSON. Answer with these tags only, each on its own, nothing before or after them:\n' + names.map(n => `<${n}>...</${n}>`).join('\n') +
+    '\nNumbers as plain digits, yes/no fields as true or false, and leave a tag empty when it does not apply.';
+  let txt = await ask(system + fmt, user, { max });
+  if (!txt) txt = await ask(system + fmt, user, { max, model: 'claude-haiku-5-5' });
   const out = {}; let any = false;
   for (const n of names) {
     const m = txt.match(new RegExp('<' + n + '>([\\s\\S]*?)</' + n + '>', 'i')); if (!m) continue; any = true;
     const v = m[1].trim(), t = props[n].type;
     out[n] = t === 'number' ? (Number(v.replace(/[^0-9.]/g, '')) || 0) : t === 'boolean' ? /^(true|yes|כן)$/i.test(v) : v;
   }
-  return any ? out : (txt ? { __text: txt } : { __empty: true });
+  return any ? out : (txt ? { __text: txt } : { __empty: true, __stop: lastEmpty });
 }
 const json = t => {
   const m = String(t || '').match(/\{[\s\S]*\}/); if (!m) return null;
@@ -245,6 +250,9 @@ async function contact(l) {
   // The first mail carries no link, no price and no sales words: a new mailbox that opens with those lands in spam.
   // It only says what was made and asks whether to send it. The demo link and the price go out in the reply to whoever answers.
   const MAILP = { subject: { type: 'string' }, body: { type: 'string' } };
+  const fixed = IL(l)
+    ? { subject: `אתר לעסק ${l.name}`, body: `שלום,\n\nשמי לוקה, עוזרת AI שעובדת עבור ${NAME_HE()}, שבונה אתרים לעסקים קטנים. ראיתי את ${l.name} ב-Google Maps${l.rating ? `, עם דירוג ${l.rating} מתוך ${l.reviews} ביקורות` : ''}, ושמתי לב שאין לעסק אתר. הכנתי עבורו אתר הדגמה.\n\nהאם תרצו שאשלח לכם את הקישור ואת הפרטים?\n\nתודה` }
+    : { subject: `A website idea for ${l.name}`, body: `Hello,\n\nI'm Luka, an AI assistant working for ${NAME()}, who builds websites for small local businesses. I came across ${l.name} on Google Maps${l.rating ? `, where you have a ${l.rating} rating from ${l.reviews} reviews` : ''}, and noticed it doesn't have a website. I put together a demo site for it.\n\nWould you like me to send you the link so you can take a look?\n\nThank you` };
   const compose = () => IL(l) ? askObj(
     `את לוקה, עוזרת AI שעובדת עבור ${NAME_HE()}, שבונה אתרים לעסקים מקומיים קטנים. כתבי בעברית את המייל הראשון לבעל עסק שמעולם לא דיברת איתו. זו פנייה חד-פעמית שכל מטרתה לבקש את הסכמתו לקבל ממך הצעה, ולכן אסור שתהיה בה הצעה עצמה: בלי קישורים, בלי מחירים, בלי מבצעים, בלי סימני קריאה ובלי אימוג'י. עד 60 מילים, בטון של פתק אישי ומנומס מאדם לאדם. אמרי ביושר: את עוזרת AI שעובדת עבור ${NAME_HE()}, ראית את העסק ב-Google Maps, שמת לב שאין לו אתר, והכנת לו אתר הדגמה. שאלי שאלה אחת פשוטה: האם הוא מסכים שתשלחי לו את הקישור ואת הפרטים. אל תוסיפי חתימה, כתובת או שורת הסרה: הן מתווספות אוטומטית. החזירי JSON בלבד: {"subject":"","body":""}. הנושא קצר, ענייני וספציפי לעסק, בלי מילות מכירה.`,
     `שם העסק: ${l.name}${l.type ? '\nסוג: ' + l.type : ''}${l.address ? '\nכתובת: ' + l.address : ''}${l.rating ? `\nדירוג בגוגל: ${l.rating} מתוך ${l.reviews} ביקורות` : '\n(אין דירוג: לא להזכיר דירוג.)'}`, MAILP, 700) : askObj(
@@ -253,7 +261,7 @@ async function contact(l) {
   // If the model answered in plain text instead of the fields, the text is the note itself.
   const norm = x => (x && x.__text && !x.body) ? { subject: T(l, `A quick question about ${l.name}`, `שאלה קצרה לגבי ${l.name}`), body: x.__text.replace(/^\s*(subject|נושא)\s*:.*\n+/i, '') } : x;
   const good = x => x && x.subject && x.body && String(x.body).trim().length > 40 && !/https?:\/\//i.test(String(x.body));
-  let m = norm(await compose()); if (!good(m)) m = norm(await compose());
+  let m = IL(l) ? fixed : norm(await compose().catch(() => null)); if (!good(m)) m = fixed;
   if (!good(m)) return `לא הצלחתי לנסח מייל אל ${l.name} (${!m ? 'אין תשובה' : m.__empty ? 'תשובה ריקה, ' + m.__stop : /https?:\/\//i.test(String(m.body || '')) ? 'היה קישור בנוסח' : 'חסר נושא או גוף: ' + JSON.stringify(m).slice(0, 160)}).`;
   l.introOnly = true;
   l.subject = String(m.subject).slice(0, 140);
