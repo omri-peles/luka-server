@@ -109,6 +109,13 @@ async function finish(slug, name, html, verb, say, tail) {
 // Used by research.js: publish a ready page the same way sites are published.
 export const publishPage = (slug, name, html, say, tail) => finish(slug, name, html, '', say, tail);
 export const pageExists = (slug) => !!index().find(x => x.slug === slug);
+// Used by leads.js: build a page and keep it without opening it on the computer or announcing it.
+export async function quietSite(slug, brief) {
+  if (!okSlug(slug)) throw new Error('bad slug');
+  const html = await generate(brief);
+  fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(file(slug), html);
+  return siteUrl(slug);
+}
 export { announce };
 
 // ---- tool handlers (answer at once; the work continues in the background) ----
