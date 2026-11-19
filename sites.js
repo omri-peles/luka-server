@@ -109,6 +109,13 @@ async function finish(slug, name, html, verb, say, tail) {
 // Used by research.js: publish a ready page the same way sites are published.
 export const publishPage = (slug, name, html, say, tail) => finish(slug, name, html, '', say, tail);
 export const pageExists = (slug) => !!index().find(x => x.slug === slug);
+// Used by outreach.js: change an existing page quietly (one step of undo is kept).
+export async function quietEdit(slug, instruction) {
+  const html = readSite(slug); if (!html) throw new Error('no such page');
+  const out = await generate('This is the existing page:\n\n' + html + '\n\nMake the following change and return the complete updated file. Change nothing that was not asked. Keep the language of the page.\nThe change: ' + instruction);
+  fs.copyFileSync(file(slug), file(slug) + '.bak'); fs.writeFileSync(file(slug), out);
+  return siteUrl(slug);
+}
 // Used by leads.js: build a page and keep it without opening it on the computer or announcing it.
 export async function quietSite(slug, brief) {
   if (!okSlug(slug)) throw new Error('bad slug');

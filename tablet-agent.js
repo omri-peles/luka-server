@@ -30,6 +30,7 @@ import { diag } from './watch.js';
 import { callPerson } from './outcall.js';
 import { githubOn, ghRepos, ghList, ghRead, ghSearch, ghWrite } from './github.js';
 import { leadsOn, findLeads, buildLeadSite, leadsText } from './leads.js';
+import { salesProgram, salesCampaign, contactLead, salesTest, salesStop } from './outreach.js';
 import { spotifyOn, playOnSpotify } from './spotify.js';
 import { setStyle, styleLine, goals, goalsCard, watches } from './notes.js';
 import { videoOn, musicOn, watchVideo, makeMusic } from './media.js';
@@ -202,6 +203,10 @@ const CALL_TOOLS = [
 const LEAD_TOOLS = [
   { name: 'find_businesses_without_site', description: 'חיפוש ב-Google Maps של עסקים מקומיים בארצות הברית שיש להם ביקורות ואין להם אתר אינטרנט. מחזיר שם, כתובת, טלפון, דירוג וקוד לכל עסק, ושומר אותם ברשימה. סוג העסק והמקום באנגלית.', input_schema: { type: 'object', properties: { kind: str('סוג העסק באנגלית, למשל barber shop, pet groomer, auto repair'), place: str('עיר ומדינה בארצות הברית, באנגלית, למשל Austin, Texas'), count: { type: 'number', description: 'כמה עסקים להביא, 1 עד 10. ברירת מחדל 5' } }, required: ['kind', 'place'] } },
   { name: 'build_lead_site', description: 'בניית אתר דוגמה באנגלית לעסק מהרשימה, מהעובדות האמיתיות שלו בלבד. נבנה ברקע בערך דקה, עם פס שמציין שזה אתר דוגמה ולא האתר הרשמי.', input_schema: { type: 'object', properties: { lead: str('הקוד של העסק או השם שלו') }, required: ['lead'] } },
+  { name: 'sales_program', description: 'תוכנית מכירת האתרים לעסקים בארצות הברית: הפעלה, עצירה, מצב ודוח, או עדכון מחירים ותקרה. בתוך התוכנית הזו בלבד יש לך אישור קבוע מאדוני: פנייה במייל לעסקים, התכתבות ומשא ומתן איתם, שליחת חשבונית PayPal ומסירת האתר אחרי שהתשלום אושר, בלי לבקש ממנו אישור בכל פעם. האישור הזה לא חל על שום דבר אחר.', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['start', 'stop', 'status', 'set'] }, ask: { type: 'number', description: 'מחיר מבוקש בדולרים' }, floor: { type: 'number', description: 'מחיר מינימום בדולרים' }, maintenance: { type: 'number', description: 'תחזוקה חודשית בדולרים' }, daily_cap: { type: 'number', description: 'כמה פניות ראשונות ביום' } }, required: ['action'] } },
+  { name: 'sales_campaign', description: 'סבב פניות במסגרת תוכנית המכירות: מחפשת עסקים מהסוג הזה במקום הזה שאין להם אתר ויש להם כתובת מייל ציבורית, בונה לכל אחד אתר דוגמה ושולחת לו מייל ראשון. רץ ברקע כמה דקות ומדווח בסוף. לא דורש אישור נוסף.', input_schema: { type: 'object', properties: { kind: str('סוג העסק באנגלית'), place: str('עיר ומדינה בארצות הברית, באנגלית'), count: { type: 'number', description: 'לכמה עסקים לפנות, 1 עד 10' } }, required: ['kind', 'place'] } },
+  { name: 'contact_lead', description: 'פנייה במייל לעסק אחד מהרשימה במסגרת תוכנית המכירות: מחפשת לו כתובת מייל ציבורית, ואם נמצאה שולחת לו את אתר הדוגמה. לא דורש אישור נוסף.', input_schema: { type: 'object', properties: { lead: str('הקוד של העסק או השם שלו') }, required: ['lead'] } },
+  { name: 'sales_test', description: 'בדיקה של תוכנית המכירות על אדוני עצמו: שולחת את מייל הפנייה לתיבה שלו במקום לעסק, וכל תשובה שלו שם נענית כאילו הוא בעל העסק. שום דבר לא מגיע לעסק אמיתי.', input_schema: { type: 'object', properties: { lead: str('הקוד או השם של עסק מהרשימה שעליו לבדוק (לא חובה)') } } },
   { name: 'leads_list', description: 'רשימת העסקים שנמצאו עד עכשיו, עם הטלפון ואתר הדוגמה של כל אחד.', input_schema: { type: 'object', properties: {} } },
 ];
 const GITHUB_TOOLS = [
@@ -490,6 +495,10 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'call_person' ? await callPerson(inp.to, inp.message)
             : b.name === 'find_businesses_without_site' ? await findLeads(inp.place, inp.kind, inp.count)
             : b.name === 'build_lead_site' ? buildLeadSite(inp.lead)
+            : b.name === 'sales_program' ? salesProgram(inp.action, inp)
+            : b.name === 'sales_campaign' ? salesCampaign(inp.kind, inp.place, inp.count)
+            : b.name === 'contact_lead' ? await contactLead(inp.lead)
+            : b.name === 'sales_test' ? await salesTest(inp.lead)
             : b.name === 'leads_list' ? (leadsText() || 'הרשימה ריקה. עוד לא חיפשתי עסקים.')
             : b.name === 'github_repos' ? await ghRepos()
             : b.name === 'github_list' ? await ghList(inp.repo, inp.path)
@@ -516,7 +525,7 @@ export async function chatStream(text, onSentenceRaw, opts = {}) {
             : b.name === 'translation_mode' ? setTranslate(!!inp.on, inp.to)
             : b.name === 'set_face' ? (opts.control ? (opts.control({ face: !!inp.on }), inp.on ? 'הפנים מוצגות.' : 'הפנים הוסתרו.') : 'אין מסך זמין כרגע.')
             : b.name === 'action_log' ? actionLog(inp.hours)
-            : b.name === 'emergency_stop' ? (halt(), clearPending(), flushMac(), 'נעצר: כל עבודת רקע של הצוות בוטלה, התור למחשב נוקה והאישורים הממתינים בוטלו. שימי לב ואמרי לו: מחקר בודד, בניית אתר או יצירת תמונה שכבר התחילו לא נעצרים וימשיכו עד הסוף.')
+            : b.name === 'emergency_stop' ? (halt(), salesStop(), clearPending(), flushMac(), 'נעצר: כל עבודת רקע של הצוות בוטלה, התור למחשב נוקה והאישורים הממתינים בוטלו. שימי לב ואמרי לו: מחקר בודד, בניית אתר או יצירת תמונה שכבר התחילו לא נעצרים וימשיכו עד הסוף.')
             : b.name === 'computer_status' ? await statsOnMac()
             : b.name === 'type_on_computer' ? await typeOnMac(inp.text)
             : b.name === 'press_keys_on_computer' ? await keysOnMac(inp.keys)
