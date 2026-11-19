@@ -62,18 +62,18 @@ async function ask(system, user, { search = false, max = 1500, model = 'claude-s
   }
   return '';
 }
-// A structured answer straight from the model (no hand-parsed JSON, so quotes such as ש"ח inside the text cannot break it).
+// A structured answer in plain tags (<reply>...</reply>). Free text inside a tag can hold any quotes, so nothing has to be escaped.
 async function askObj(system, user, props, max = 1200) {
-  const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(150000),
-    headers: { 'x-api-key': KEY(), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: max, system: system + '\n\nGive your answer only by calling the `answer` tool, with every field filled. Write nothing outside the tool call.', messages: [{ role: 'user', content: user }],
-      tools: [{ name: 'answer', description: 'Give the answer in these fields.', input_schema: { type: 'object', properties: props, required: Object.keys(props).slice(0, 2) } }] }) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j.error && j.error.message) || ('HTTP ' + r.status));
-  const b = (j.content || []).find(x => x.type === 'tool_use');
-  if (b && b.input && typeof b.input === 'object') return b.input;
-  const txt = (j.content || []).filter(x => x.type === 'text').map(x => x.text).join('').trim();
-  return json(txt) || (txt ? { __text: txt, __stop: j.stop_reason } : { __empty: true, __stop: j.stop_reason });
+  const names = Object.keys(props);
+  const txt = await ask(system + '\n\nFORMAT: ignore any earlier instruction about JSON. Answer with these tags only, each on its own, nothing before or after them:\n' + names.map(n => `<${n}>...</${n}>`).join('\n') +
+    '\nNumbers as plain digits, yes/no fields as true or false, and leave a tag empty when it does not apply.', user, { max });
+  const out = {}; let any = false;
+  for (const n of names) {
+    const m = txt.match(new RegExp('<' + n + '>([\\s\\S]*?)</' + n + '>', 'i')); if (!m) continue; any = true;
+    const v = m[1].trim(), t = props[n].type;
+    out[n] = t === 'number' ? (Number(v.replace(/[^0-9.]/g, '')) || 0) : t === 'boolean' ? /^(true|yes|כן)$/i.test(v) : v;
+  }
+  return any ? out : (txt ? { __text: txt } : { __empty: true });
 }
 const json = t => {
   const m = String(t || '').match(/\{[\s\S]*\}/); if (!m) return null;
