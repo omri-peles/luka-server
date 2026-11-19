@@ -30,7 +30,8 @@ function S() {
   const s = load();
   if (!s.sales) s.sales = { on: false, cap: 10, day: '', sent: 0, optout: [], prices: { ask: 750, floor: 300, maint: 100 } };
   if (!s.sales.pricesIL) s.sales.pricesIL = { ask: 750, floor: 400, maint: 99, maintFloor: 79 };
-  if (!s.sales.capIL) s.sales.capIL = 10;
+  if (s.sales.capIL == null) s.sales.capIL = 10;
+  if (!s.sales.capOff) { s.sales.cap = 0; s.sales.capIL = 0; s.sales.capOff = 1; }   // the owner removed the daily cap (20.11); 0 means no cap
   return s.sales;
 }
 // Two markets: the United States (English, dollars) and Israel (Hebrew, shekels). A business carries its market with it.
@@ -251,7 +252,7 @@ async function contact(l) {
     if (!st.on) return 'תוכנית המכירות כבויה. אדוני צריך להפעיל אותה קודם.';
     if (!ADDRESS()) return 'לא פניתי: חסרה כתובת הדואר לתחתית המייל (SALES_ADDRESS בשרת). בלי זה אסור לשלוח מייל שיווקי בארצות הברית.';
     if (st.day !== today()) { st.day = today(); st.sent = 0; st.sentIL = 0; }
-    if (IL(l) ? (st.sentIL || 0) >= st.capIL : st.sent >= st.cap) return `הגעתי לתקרת הפניות להיום (${IL(l) ? st.capIL : st.cap}).`;
+    if (IL(l) ? st.capIL > 0 && (st.sentIL || 0) >= st.capIL : st.cap > 0 && st.sent >= st.cap) return `הגעתי לתקרת הפניות להיום (${IL(l) ? st.capIL : st.cap}).`;
   }
   if (!gmail()) return 'אין חיבור לחשבון Google.';
   if (!l.thread && salesBoxOn()) l.box = 'sales';
@@ -460,7 +461,7 @@ export function salesProgram(action, o = {}) {
     const pr = o.market === 'il' ? st.pricesIL : st.prices;
     if (n('ask')) pr.ask = n('ask'); if (n('floor')) pr.floor = n('floor'); if (n('maintenance')) pr.maint = n('maintenance'); if (n('maintenance_floor')) pr.maintFloor = Math.min(n('maintenance_floor'), pr.maint);
     if (pr.floor > pr.ask) pr.floor = pr.ask;
-    if (n('daily_cap')) { if (o.market === 'il') st.capIL = Math.min(100, n('daily_cap')); else st.cap = Math.min(100, n('daily_cap')); }
+    if (o.daily_cap != null && o.daily_cap !== '' && Number(o.daily_cap) >= 0) { const c = Math.min(500, Math.round(Number(o.daily_cap))); if (o.market === 'il') st.capIL = c; else st.cap = c; }   // 0 = no cap
     if (o.paypal_me) st.paypalMe = String(o.paypal_me).trim().slice(0, 80);
     save(); return 'עודכן. ' + salesStatus();
   }
@@ -478,7 +479,7 @@ export function salesStop() { S().on = false; save(); }
 export function salesStatus() {
   const st = S(), all = leads().filter(l => l.thread && !l.test), c = s => all.filter(l => l.status === s).length;
   const got = all.reduce((a, l) => a + (l.dues || []).filter(d => d.paid).reduce((x, d) => x + d.amount, 0), 0);
-  return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}. ארצות הברית: מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש, עד ${st.cap} פניות ביום (היום יצאו ${st.day === today() ? st.sent : 0}), משמרת קבועה ${st.daily ? st.daily.from + ':00 עד ' + st.daily.to + ':00' : 'אין'}. ישראל: מחיר מבוקש ${st.pricesIL.ask} שקלים, מינימום ${st.pricesIL.floor}, ליווי ${st.pricesIL.maint} לחודש (מינימום ${st.pricesIL.maintFloor}), עד ${st.capIL} פניות ביום (היום יצאו ${st.day === today() ? (st.sentIL || 0) : 0}), משמרת קבועה ${st.dailyIL ? st.dailyIL.from + ':00 עד ' + st.dailyIL.to + ':00' : 'אין'}. ` +
+  return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}. ארצות הברית: מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש, ${st.cap > 0 ? 'עד ' + st.cap + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? st.sent : 0}), משמרת קבועה ${st.daily ? st.daily.from + ':00 עד ' + st.daily.to + ':00' : 'אין'}. ישראל: מחיר מבוקש ${st.pricesIL.ask} שקלים, מינימום ${st.pricesIL.floor}, ליווי ${st.pricesIL.maint} לחודש (מינימום ${st.pricesIL.maintFloor}), ${st.capIL > 0 ? 'עד ' + st.capIL + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? (st.sentIL || 0) : 0}), משמרת קבועה ${st.dailyIL ? st.dailyIL.from + ':00 עד ' + st.dailyIL.to + ':00' : 'אין'}. ` +
     `פניות שיצאו: ${all.length}. בהתכתבות: ${c('talking')}. הסכימו וממתינים לתשלום: ${c('agreed')}. שילמו: ${c('paid') + c('done')}. לא מעוניינים: ${c('lost')}. ביקשו הסרה: ${c('optout')}. הועברו אליך: ${c('handoff')}. סך הכול התקבל: ${money(got)} דולר. ` +
     `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, תיבת פניות ${salesBoxOn() ? salesBoxAddress() : 'לא מחוברת'}, תשלום ${paypalOn() ? 'חשבוניות PayPal' : meLink(1) ? 'קישור PayPal.Me, עם אימות לפי המייל של PayPal' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
 }
@@ -584,7 +585,7 @@ async function shiftTickFor(market) {
   if (!sh || sh.done || now < sh.start) return;
   if (st.day !== today()) { st.day = today(); st.sent = 0; st.sentIL = 0; }
   const used = il ? (st.sentIL || 0) : st.sent, cap = il ? st.capIL : st.cap, over = now >= sh.end;
-  if (over || !st.on || sh.looked >= sh.max || used >= cap) {
+  if (over || !st.on || sh.looked >= sh.max || (cap > 0 && used >= cap)) {
     if (campaigns.size) return;                              // let the running round finish first
     if (!over && st[k.daily] && st.on) return;               // budget used up before the end: wait quietly for the end of the window
     sh.done = true; save();
@@ -595,7 +596,7 @@ async function shiftTickFor(market) {
   if (campaigns.size || !ADDRESS() || !leadsOn() || !salesBoxOn() || (il && restIL())) return;
   const K = il ? KINDS_IL : KINDS, PL = il ? PLACES_IL : PLACES;
   const kind = K[sh.i % K.length], place = PL[Math.floor(sh.i / K.length + sh.i * 7) % PL.length]; sh.i++; save();
-  salesCampaign(kind, place, { n: Math.min(10, cap - used), quiet: true, market });
+  salesCampaign(kind, place, { n: cap > 0 ? Math.min(10, cap - used) : 10, quiet: true, market });
 }
 async function shiftTick() { await shiftTickFor('us'); await shiftTickFor('il'); }
 setTimeout(() => { setInterval(() => shiftTick().catch(e => console.error('sales shift', e.message)), 60000).unref(); }, 50000).unref();
