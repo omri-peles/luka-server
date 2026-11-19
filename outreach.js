@@ -152,13 +152,23 @@ async function send(l, subject, text, { replyTo = '', attach = null } = {}) {
   const head = [IL(l) ? `From: =?UTF-8?B?${b64('לוקה, העוזרת של ' + NAME_HE())}?= <${from}>` : `From: "Luka (assistant to ${NAME()})" <${from}>`, `To: ${l.email}`, `Subject: =?UTF-8?B?${b64(subject)}?=`, 'MIME-Version: 1.0',
     `List-Unsubscribe: <mailto:${from}?subject=stop>`, ...(replyTo ? [`In-Reply-To: ${replyTo}`, `References: ${replyTo}`] : [])];
   const body = text.trim() + footer(l);
+  const wrap = x => b64(x).replace(/(.{76})/g, '$1\r\n');
+  // Hebrew goes out as right-to-left HTML (with the plain text beside it): as bare text, lines that mix Hebrew with words like AI or PayPal come out scrambled.
+  const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = '<div dir="rtl" style="direction:rtl;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6">' +
+    esc(body).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" dir="ltr">$1</a>').replace(/\r?\n/g, '<br>\n') + '</div>';
+  const textPart = ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(body)];
+  const ab = 'lukaalt' + Date.now().toString(36);
+  const content = IL(l)
+    ? [`Content-Type: multipart/alternative; boundary="${ab}"`, '', `--${ab}`, ...textPart, `--${ab}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap(html), `--${ab}--`]
+    : textPart;
   let raw;
   if (attach) {
     const bd = 'luka' + Date.now().toString(36);
-    raw = [...head, `Content-Type: multipart/mixed; boundary="${bd}"`, '', `--${bd}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64(body),
+    raw = [...head, `Content-Type: multipart/mixed; boundary="${bd}"`, '', `--${bd}`, ...content,
       `--${bd}`, `Content-Type: text/html; charset=UTF-8; name="${attach.name}"`, `Content-Disposition: attachment; filename="${attach.name}"`, 'Content-Transfer-Encoding: base64', '',
-      b64(attach.content).replace(/(.{76})/g, '$1\r\n'), `--${bd}--`].join('\r\n');
-  } else raw = [...head, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64(body)].join('\r\n');
+      wrap(attach.content), `--${bd}--`].join('\r\n');
+  } else raw = [...head, ...content].join('\r\n');
   const r = await boxOf(l).users.messages.send({ userId: 'me', requestBody: { raw: Buffer.from(raw).toString('base64url'), ...(l.thread ? { threadId: l.thread } : {}) } });
   l.thread = r.data.threadId; l.mine = [...(l.mine || []), r.data.id]; l.seen = [...(l.seen || []), r.data.id]; if (l.box !== 'sales') hush([r.data.id]);
   l.log = [...(l.log || []), { who: 'luka', at: Date.now(), text: text.trim().slice(0, 3000) }].slice(-30);
