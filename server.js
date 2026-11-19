@@ -205,6 +205,7 @@ import('./drive.js').then(m => m.mountDrive(app)).catch(e => console.error('driv
 import('./reminders.js').catch(e => console.error('reminders module', e.message));
 import('./outreach.js').catch(e => console.error('sales module', e.message));
 import('./salesbox.js').then(m => m.mountSales(app)).catch(e => console.error('sales mailbox', e.message));
+import('./booking.js').then(m => m.mountBooking(app)).catch(e => console.error('booking', e.message));   // online booking on the sites she builds
 import('./shopwatch.js').catch(e => console.error('shop watch module', e.message));
 app.get('/images/:id', async (req, res) => {        // pictures Luka made (random, unguessable ids)
   let p = null; try { p = (await import('./imagegen.js')).imagePath(req.params.id); } catch (e) {}

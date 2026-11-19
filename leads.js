@@ -4,11 +4,12 @@
 import crypto from 'crypto';
 import { load, save } from './store.js';
 import { quietSite, siteUrl, announce } from './sites.js';
+import { bookingKind, bookingBrief, attachBooking } from './booking.js';
 
 const KEY = () => process.env.GOOGLE_MAPS_KEY || '';
 export const leadsOn = () => !!KEY();
 const FIELDS = ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 'internationalPhoneNumber', 'websiteUri', 'rating', 'userRatingCount',
-  'primaryTypeDisplayName', 'businessStatus', 'googleMapsUri', 'regularOpeningHours.weekdayDescriptions', 'editorialSummary'].map(f => 'places.' + f).join(',') + ',nextPageToken';
+  'primaryTypeDisplayName', 'businessStatus', 'googleMapsUri', 'regularOpeningHours.weekdayDescriptions', 'regularOpeningHours.periods', 'editorialSummary'].map(f => 'places.' + f).join(',') + ',nextPageToken';
 
 export function leads() { const s = load(); if (!Array.isArray(s.leads)) s.leads = []; return s.leads; }
 const building = new Set();
@@ -24,6 +25,21 @@ async function search(query, pageToken, il) {
   return j;
 }
 
+// Opening hours as [weekday (0 = Sunday), opens, closes] in minutes, for the booking card on the site.
+function periods(p) {
+  const list = (p.regularOpeningHours && p.regularOpeningHours.periods) || []; if (!list.length) return null;
+  if (list.length === 1 && !list[0].close) return [0, 1, 2, 3, 4, 5, 6].map(d => [d, 0, 1440]);   // always open
+  const out = [];
+  for (const x of list) {
+    if (!x.open || typeof x.open.day !== 'number') continue;
+    const o = (x.open.hour || 0) * 60 + (x.open.minute || 0);
+    let c = x.close ? (x.close.hour || 0) * 60 + (x.close.minute || 0) : 1440;
+    if (x.close && (x.close.day !== x.open.day || c <= o)) c += 1440;
+    out.push([x.open.day, o, Math.min(c, 2880)]);
+  }
+  return out.length ? out.slice(0, 28) : null;
+}
+
 export async function searchLeads(place, kind, want, market) {
   const il = market === 'il';
   const list = leads(), found = []; let token = '', seen = 0;
@@ -37,6 +53,7 @@ export async function searchLeads(place, kind, want, market) {
         address: p.formattedAddress || '', phone: p.nationalPhoneNumber || p.internationalPhoneNumber || '', rating: p.rating || 0, reviews: p.userRatingCount || 0,
         hours: (p.regularOpeningHours && p.regularOpeningHours.weekdayDescriptions) || [], about: (p.editorialSummary && p.editorialSummary.text) || '',
         maps: p.googleMapsUri || '', status: 'found', site: '', at: Date.now(), ...(il ? { market: 'il' } : {}) };
+      const per = periods(p); if (per) lead.periods = per;
       if (!lead.name) continue;
       list.push(lead); found.push(lead);
       if (found.length >= want) break;
@@ -77,7 +94,7 @@ function brief(l) {
 שעות פתיחה: ${l.hours.length ? l.hours.join('; ') : 'לא רשומות (להשמיט)'}
 ${l.about ? 'תיאור קצר: ' + l.about : ''}
 ${l.maps ? 'קישור Google Maps לכפתור "הוראות הגעה": ' + l.maps : ''}
-חלקים: פתיח עם שם העסק וכפתור חיוג ברור (קישור tel:), מה העסק מציע במונחים כלליים לסוגו, תג דירוג, שעות, מיקום עם כפתור הוראות הגעה, תחתית עם פרטי קשר.
+חלקים: פתיח עם שם העסק וכפתור חיוג ברור (קישור tel:), מה העסק מציע במונחים כלליים לסוגו, תג דירוג, שעות, מיקום עם כפתור הוראות הגעה, תחתית עם פרטי קשר.${bookingBrief(l)}
 חובה: להוסיף <meta name="robots" content="noindex,nofollow"> ופס דק ובולט בראש העמוד עם הטקסט: "אתר הדגמה שהוכן עבור ${l.name}. זה אינו האתר הרשמי של העסק."`;
   return `Build a one-page website in ENGLISH (<html lang="en" dir="ltr">, an English Google Font) for this real local business in the United States.
 Use ONLY the facts below. Do not invent prices, services lists, staff names, testimonials, years in business or anything else that is not listed; where a detail is missing, write generally or leave it out (no bracket placeholders).
@@ -89,7 +106,7 @@ Google rating: ${l.rating} from ${l.reviews} reviews (show it as a fact; do not 
 Opening hours: ${l.hours.length ? l.hours.join('; ') : 'not listed (leave out)'}
 ${l.about ? 'Short description: ' + l.about : ''}
 ${l.maps ? 'Google Maps link for a "Get directions" button: ' + l.maps : ''}
-Sections: hero with the name and a clear call button (tel: link), what the business offers in general terms for its type, rating badge, hours, location with the directions button, contact footer.
+Sections: hero with the name and a clear call button (tel: link), what the business offers in general terms for its type, rating badge, hours, location with the directions button, contact footer.${bookingBrief(l)}
 Required: add <meta name="robots" content="noindex,nofollow"> and a slim, clearly visible bar at the very top that says: "Demo concept prepared for ${l.name}. This is not the business's official website."`;
 }
 // Builds the demo site if there is none yet and returns its address.
@@ -98,6 +115,7 @@ export async function ensureSite(l) {
   const slug = 'demo-' + (l.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 22).replace(/-+$/, '') || 'site') + '-' + crypto.randomBytes(4).toString('hex');
   const url = await quietSite(slug, brief(l));
   l.site = url; l.slug = slug; if (l.status === 'found') l.status = 'site'; save();
+  if (bookingKind(l)) { try { attachBooking(l); } catch (e) { console.error('booking attach', l.key, e.message); } }
   return url;
 }
 
