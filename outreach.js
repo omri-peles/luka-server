@@ -221,10 +221,12 @@ async function contact(l) {
   const p = st.prices;
   // The first mail carries no link, no price and no sales words: a new mailbox that opens with those lands in spam.
   // It only says what was made and asks whether to send it. The demo link and the price go out in the reply to whoever answers.
-  const m = json(await ask(
+  const compose = () => ask(
     `You are Luka, an AI assistant working for ${NAME()}, who builds websites for small local businesses. Write the first email to a business owner you have never spoken to. It must read like a short personal note from one person to another, not like marketing: plain text, under 70 words, no links, no prices, no emojis, no exclamation marks, and none of these words: free, offer, deal, discount, guarantee, limited, promotion, click. Say honestly: you are an AI assistant working for ${NAME()}, you saw their business on Google Maps with its real rating, noticed it has no website, and put together a demo site for it. Ask one simple question: would they like you to send the link so they can take a look. Do not add a signature, a postal address or an unsubscribe line: those are added automatically. Reply with JSON only: {"subject":"","body":""}. The subject is short, specific to the business and plain, like something a person would type (no "Re:", no sales words).`,
-    `Business name: ${l.name}\nType: ${l.type}\nCity/address: ${l.address}\nGoogle rating: ${l.rating} from ${l.reviews} reviews`, { max: 500 }));
-  if (!m || !m.subject || !m.body || /https?:\/\//i.test(String(m.body))) return `לא הצלחתי לנסח מייל אל ${l.name}.`;
+    `Business name: ${l.name}${l.type ? '\nType: ' + l.type : ''}${l.address ? '\nCity/address: ' + l.address : ''}${l.rating ? `\nGoogle rating: ${l.rating} from ${l.reviews} reviews` : '\n(No rating on hand: do not mention a rating.)'}`, { max: 700 });
+  const good = x => x && x.subject && x.body && !/https?:\/\//i.test(String(x.body));
+  let m = json(await compose()); if (!good(m)) m = json(await compose());
+  if (!good(m)) return `לא הצלחתי לנסח מייל אל ${l.name}.`;
   l.introOnly = true;
   l.subject = String(m.subject).slice(0, 140);
   await send(l, l.subject, /\bAI\b/.test(String(m.body)) ? String(m.body) : /\b(an|a) assistant\b/i.test(String(m.body)) ? String(m.body).replace(/\b(an|a) assistant\b/i, 'an AI assistant') : String(m.body).replace(/\bLuka\b/, 'Luka, an AI assistant'));
@@ -450,7 +452,7 @@ export async function salesGuide(q, note) {
 }
 // A full rehearsal on the owner's own address: same mail, same thread handling, nothing reaches a business.
 export async function salesTest(q) {
-  const src = pick(q) || leads().filter(l => !l.test).slice(-1)[0]; if (!src) return 'אין עסק ברשימה לבדוק עליו. צריך לחפש עסקים קודם.';
+  const src = pick(q) || leads().filter(l => !l.test && l.rating).slice(-1)[0] || leads().filter(l => !l.test).slice(-1)[0]; if (!src) return 'אין עסק ברשימה לבדוק עליו. צריך לחפש עסקים קודם.';
   if (!gmail()) return 'אין חיבור לחשבון Google.';
   try {
     const l = { ...src, id: 'test-' + Date.now(), key: 't' + Date.now().toString(36).slice(-4), test: true, email: await me(), thread: '', mine: [], seen: [], log: [], dues: [], status: 'site', replies: 0, deal: null, live: 0 };
