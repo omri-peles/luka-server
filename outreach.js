@@ -314,6 +314,35 @@ async function paid(l, due) {
 function hush(ids) {
   try { for (const id of ids) remember('seenEmailIds', id); const s = load(); if (Array.isArray(s.mailScanned)) { s.mailScanned = [...s.mailScanned, ...ids].slice(-300); save(); } } catch (e) {}
 }
+// Threads she opened but that fell out of the list are put back from the Sent folder, so a late reply is still answered.
+async function recover() {
+  const g = gmail(); if (!g) return;
+  const mine = await me(), list = leads(), known = new Set(list.map(l => l.thread).filter(Boolean)); let token, added = 0;
+  for (let page = 0; page < 4; page++) {
+    const res = await g.users.threads.list({ userId: 'me', q: 'in:sent "AI assistant to" subject:(website) newer_than:5d', maxResults: 100, ...(token ? { pageToken: token } : {}) });
+    for (const t of res.data.threads || []) {
+      if (known.has(t.id)) continue;
+      try {
+        const th = await g.users.threads.get({ userId: 'me', id: t.id, format: 'full' }), ms = th.data.messages || [], first = ms[0]; if (!first) continue;
+        const H = (m, k) => ((m.payload && m.payload.headers) || []).find(x => x.name.toLowerCase() === k)?.value || '';
+        const addr = v => (v.match(/<([^>]+)>/) || [, v])[1].trim().toLowerCase();
+        const to = addr(H(first, 'to')), subject = H(first, 'subject'), body = bodyText(first.payload) || '';
+        if (!to || to === mine || addr(H(first, 'from')) !== mine || /^re:/i.test(subject)) continue;
+        const site = (body.match(/https:\/\/\S+\/sites\/[a-z0-9-]+/) || [''])[0], name = (subject.match(/\bfor (.+)$/i) || [, subject])[1].trim().slice(0, 80);
+        const bounced = ms.some(m => /mailer-daemon|postmaster/i.test(H(m, 'from'))), theirs = ms.filter(m => addr(H(m, 'from')) === to);
+        const st = S(); if (bounced && !st.optout.includes(to)) st.optout.push(to);
+        list.push({ id: 'rec-' + t.id, key: t.id.slice(-6), name, type: '', address: '', phone: '', rating: 0, reviews: 0, hours: [], about: '', maps: '', site, slug: site.split('/sites/')[1] || '', email: to, thread: t.id, subject,
+          mine: ms.filter(m => addr(H(m, 'from')) === mine).map(m => m.id), seen: ms.filter(m => addr(H(m, 'from')) !== to).map(m => m.id),   // a reply that is already waiting stays unseen, so it gets answered
+          log: [{ who: 'luka', at: Number(first.internalDate) || Date.now(), text: body.split('\n--\n')[0].trim().slice(0, 3000) }], dues: [], replies: 0, status: bounced ? 'bounced' : st.optout.includes(to) ? 'optout' : 'contacted', contactedAt: Number(first.internalDate) || Date.now(), at: Date.now(), recovered: true });
+        known.add(t.id); added++; if (theirs.length) console.log('sales recover: reply waiting from', to);
+      } catch (e) { console.error('sales recover', t.id, e.message); }
+    }
+    token = res.data.nextPageToken; if (!token) break;
+  }
+  if (added) save();
+  console.log('sales recover: restored', added);
+}
+setTimeout(() => { recover().catch(e => console.error('sales recover', e.message)); }, 20000).unref();
 // ---------- the background loop ----------
 let running = false;
 async function tick() {

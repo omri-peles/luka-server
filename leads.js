@@ -42,7 +42,10 @@ export async function searchLeads(place, kind, want) {
     }
     token = j.nextPageToken || ''; if (!token) break;
   }
-  if (list.length > 300) list.splice(0, list.length - 300);
+  if (list.length > 400) {                                  // drop only old businesses that were never written to
+    let extra = list.length - 400;
+    for (let i = 0; i < list.length && extra > 0; ) { if (!list[i].thread && !found.includes(list[i])) { list.splice(i, 1); extra--; } else i++; }
+  }
   save();
   return { found, seen };
 }
