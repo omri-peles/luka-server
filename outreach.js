@@ -150,7 +150,7 @@ async function invoice(l, due) {
   due.invoice = id; due.link = (d.detail && d.detail.metadata && d.detail.metadata.recipient_view_url) || ''; due.sentAt = Date.now(); save();
   return due.link;
 }
-const meLink = amount => { const u = String(S().paypalMe || '').replace(/^https?:\/\//i, '').replace(/^(www\.)?paypal\.me\//i, '').replace(/[^A-Za-z0-9._-]/g, ''); return u ? `https://paypal.me/${u}/${money(amount)}USD` : ''; };
+const meLink = amount => { const raw = String(S().paypalMe || '').trim(); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return `PayPal: choose Send, enter ${raw}, amount $${money(amount)} USD`; const u = String(S().paypalMe || '').replace(/^https?:\/\//i, '').replace(/^(www\.)?paypal\.me\//i, '').replace(/[^A-Za-z0-9._-]/g, ''); return u ? `https://paypal.me/${u}/${money(amount)}USD` : ''; };
 const payOn = () => paypalOn() || !!meLink(1);
 // Has PayPal itself written to the owner that this amount arrived? Only a mail that Gmail marked as really signed by paypal.com counts.
 async function paidByMail(l, due) {
