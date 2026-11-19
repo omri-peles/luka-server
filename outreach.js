@@ -317,6 +317,9 @@ export async function salesGuide(q, note) {
   const l = (n && (live.find(x => x.key === n) || live.slice().reverse().find(x => x.name.toLowerCase().includes(n)))) || (!n && live.slice(-1)[0]) || pick(q);
   if (!l || !l.thread) return 'לא נמצאה התכתבות פעילה עם עסק כזה.';
   if (['optout', 'lost'].includes(l.status)) return `ההתכתבות עם ${l.name} סגורה, ולא אכתוב לו שוב.`;
+  if (!String(note || '').trim()) return 'לא כתבתי: צריך הנחיה מפורשת של אדוני.';
+  const lastLog = (l.log || []).slice(-1)[0];
+  if (lastLog && lastLog.who === 'luka' && Date.now() - lastLog.at < 3 * 60000) return `לא כתבתי: נשלח ל-${l.name} מייל לפני רגע, ועכשיו מחכים לתשובה שלו. אין צורך במייל נוסף.`;
   try { if (l.status === 'handoff') l.status = 'talking'; const sent = await answer(l, '', '', String(note || '').trim() || 'Continue the conversation.'); return sent ? `כתבתי ל-${l.name}. זה הנוסח המדויק שנשלח (דווחי לאדוני רק מה שכתוב בו, בלי להוסיף מספרים): ${sent.slice(0, 900)}` : `לא נשלח מייל ל-${l.name}.`; }
   catch (e) { return 'לא הצלחתי לכתוב לו: ' + String(e.message || e).slice(0, 200); }
 }
