@@ -31,6 +31,7 @@ function S() {
   if (!s.sales) s.sales = { on: false, cap: 10, day: '', sent: 0, optout: [], prices: { ask: 750, floor: 300, maint: 100 } };
   if (!s.sales.pricesIL) s.sales.pricesIL = { ask: 750, floor: 400, maint: 99, maintFloor: 79 };
   if (s.sales.capIL == null) s.sales.capIL = 10;
+  if (!s.sales.wide) { for (const k of ['daily', 'dailyIL']) if (s.sales[k]) s.sales[k].lookups = 900; for (const k of ['shift', 'shiftIL']) if (s.sales[k] && !s.sales[k].done) s.sales[k].max = 900; s.sales.wide = 1; }   // the owner asked for a much wider search (20.11)
   if (!s.sales.capOff) { s.sales.cap = 0; s.sales.capIL = 0; s.sales.capOff = 1; }   // the owner removed the daily cap (20.11); 0 means no cap
   return s.sales;
 }
@@ -524,12 +525,20 @@ export function salesCampaign(kind, place, count) {
   (async () => {
     let checked = 0, noMail = 0, sent = 0; const names = [];
     try {
-      const { found } = await searchLeads(place, kind, Math.min(30, want * 5), market);
-      for (const l of found) {
-        if (sent >= want || !S().on) break;
-        checked++; { const sh = S()[market === 'il' ? 'shiftIL' : 'shift']; if (sh) sh.looked = (sh.looked || 0) + 1; }
-        try { l.email = await findEmail(l); } catch (e) { l.email = ''; }
-        if (!l.email) { l.status = 'noemail'; noMail++; save(); continue; }
+      const { found } = await searchLeads(place, kind, quiet ? 60 : Math.min(30, want * 5), market);
+      // Addresses are looked up for four businesses at a time; the mails themselves still go out one by one, spaced apart.
+      let next = 0; const ready = [];
+      const worker = async () => {
+        while (next < found.length && S().on) {
+          const l = found[next++];
+          checked++; { const sh = S()[market === 'il' ? 'shiftIL' : 'shift']; if (sh) sh.looked = (sh.looked || 0) + 1; }
+          try { l.email = await findEmail(l); } catch (e) { l.email = ''; }
+          if (!l.email) { l.status = 'noemail'; noMail++; save(); } else ready.push(l);
+        }
+      };
+      await Promise.all([1, 2, 3, 4].map(worker));
+      for (const l of ready) {
+        if ((!quiet && sent >= want) || !S().on) break;
         const r = await contact(l);
         if (/^פניתי/.test(r)) { sent++; names.push(l.name); } else if (/תקרת/.test(r)) break;
       }
@@ -563,7 +572,7 @@ const SK = m => (m === 'il' ? { shift: 'shiftIL', daily: 'dailyIL' } : { shift: 
 function openShift(from, to, lookups, market) {
   const st = S(), k = SK(market), now = Date.now(), len = ((to - from + 24) % 24 || 24) * 3600000;
   const next = nextAt(from, now), inside = next - 24 * 3600000, running = inside + len > now;
-  st[k.shift] = { start: running ? now : next, end: running ? inside + len : next + len, max: Math.max(20, Math.min(900, Math.round(Number(lookups) || 300))), looked: 0, sent: 0, i: Math.floor(Math.random() * 1000), done: false };
+  st[k.shift] = { start: running ? now : next, end: running ? inside + len : next + len, max: Math.max(20, Math.min(900, Math.round(Number(lookups) || 900))), looked: 0, sent: 0, i: Math.floor(Math.random() * 1000), done: false };
   save(); return st[k.shift];
 }
 const hhmm = t => new Date(t).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -572,7 +581,7 @@ export function salesShift(from, to, lookups, daily, market) {
   const st = S(), k = SK(market), f = Math.max(0, Math.min(23, Math.round(Number(from)))), t = Math.max(0, Math.min(24, Math.round(Number(to)))) % 24;
   if (!Number.isFinite(f) || !Number.isFinite(t) || f === t) return 'צריך שעת התחלה ושעת סיום שונות, בשעון ישראל.';
   st.on = true;
-  if (daily) st[k.daily] = { from: f, to: t, lookups: Math.round(Number(lookups) || 300) };
+  if (daily) st[k.daily] = { from: f, to: t, lookups: Math.round(Number(lookups) || 900) };
   const sh = openShift(f, t, lookups, market);
   return `נקבעה משמרת מכירות ${market === 'il' ? 'לישראל' : 'לארצות הברית'}${daily ? ', קבועה כל יום' : ''}: מ-${f}:00 עד ${t}:00 שעון ישראל. הקרובה: ${hhmm(sh.start)} עד ${hhmm(sh.end)}. אבדוק עד ${sh.max} עסקים ואפנה לעד ${market === 'il' ? st.capIL : st.cap} ביום.${market === 'il' ? ' בישראל אין פניות מיום שישי ב-14:00 ועד צאת השבת.' : ''} בסוף כל משמרת אשלח דוח.` +
     (ADDRESS() ? '' : ' כתובת הדואר (SALES_ADDRESS) חסרה, ובלעדיה לא אפנה לאף עסק.') + (salesBoxOn() ? '' : ' תיבת הפניות הנפרדת עוד לא מחוברת, ובלעדיה לא אפנה לאף עסק.');
