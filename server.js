@@ -402,7 +402,9 @@ app.post('/whatsapp', async (req, res) => {
   }
   // "Call me": the owner writes to Luka and she rings him right away (no international dialing
   // needed on his side). Works at any hour, since he asked for it himself.
-  if (/תתקשרי|התקשרי|תצלצלי|צלצלי אלי/.test(body)) {
+  // Only a plain "call me" takes this shortcut. "Call dad and tell him..." names someone else, so it goes to her
+  // normal handling below (where a call to another person asks for his approval first).
+  if (/^(לוקה[\s,:.!]*)?(היי\s+|בבקשה\s+)?(תתקשרי|התקשרי|תצלצלי|צלצלי)((\s+|[,.!?]+)(אליי|אלי|לי|עכשיו|בבקשה|מיד|רגע|דחוף))*[\s.!?]*$/.test(body)) {
     callOwner('כן אדוני, אני מקשיבה.').then(r => { if (!r.ok) console.warn('[call-me] failed:', r.reason); });
     return res.type('text/xml').send('<Response><Message>מתקשרת אליך עכשיו, אדוני.</Message></Response>');
   }
