@@ -32,6 +32,7 @@ function S() {
   if (!s.sales.pricesIL) s.sales.pricesIL = { ask: 750, floor: 400, maint: 99, maintFloor: 79 };
   if (s.sales.capIL == null) s.sales.capIL = 10;
   if (!s.sales.wide) { for (const k of ['daily', 'dailyIL']) if (s.sales[k]) s.sales[k].lookups = 900; for (const k of ['shift', 'shiftIL']) if (s.sales[k] && !s.sales[k].done) s.sales[k].max = 900; s.sales.wide = 1; }   // the owner asked for a much wider search (20.11)
+  if (!s.sales.hold1) { s.sales.hold = true; s.sales.on = true; s.sales.hold1 = 1; }   // 20.11: new outreach is held until an inbox-placement check passes; replies keep being answered
   if (!s.sales.capOff) { s.sales.cap = 0; s.sales.capIL = 0; s.sales.capOff = 1; }   // the owner removed the daily cap (20.11); 0 means no cap
   return s.sales;
 }
@@ -44,6 +45,16 @@ const T = (l, en, he) => (IL(l) ? he : en);
 const today = () => new Date(Date.now() - 4 * 3600000).toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
 const money = n => (Math.round(Number(n) * 100) / 100).toFixed(2);
 const slugOf = l => l.slug || String(l.site || '').split('/sites/')[1] || '';
+// A mailbox earns its volume: a new sending mailbox starts low and grows week by week. Sending more than this from a
+// young mailbox is what puts mail in spam, so this limit holds even when the owner set no daily cap.
+function ramp() {
+  const st = S(), box = salesBoxAddress() || '';
+  if (st.rampBox !== box) { st.rampBox = box; st.rampStart = Date.now(); save(); }
+  const week = Math.floor((Date.now() - (st.rampStart || Date.now())) / (7 * DAY));
+  return [10, 20, 30][week] || 40;
+}
+const ilHour = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }).format(new Date())) % 24;
+const sentToday = () => { const st = S(); if (st.day !== today()) { st.day = today(); st.sent = 0; st.sentIL = 0; st.fuSent = 0; } return (st.sent || 0) + (st.sentIL || 0) + (st.fuSent || 0); };
 const tell = (text, l, phone) => announce(text, l ? { title: l.name, note: text.replace(/^אדוני, /, '').slice(0, 160), ...(l.site ? { link: l.site } : {}) } : undefined, l && l.site, !!phone);
 
 async function ringOnce(flag, text, l) {
@@ -252,7 +263,8 @@ async function contact(l) {
   if (!l.test) {
     if (!st.on) return 'תוכנית המכירות כבויה. אדוני צריך להפעיל אותה קודם.';
     if (!ADDRESS()) return 'לא פניתי: חסרה כתובת הדואר לתחתית המייל (SALES_ADDRESS בשרת). בלי זה אסור לשלוח מייל שיווקי בארצות הברית.';
-    if (st.day !== today()) { st.day = today(); st.sent = 0; st.sentIL = 0; }
+    if (st.hold) return 'הפניות החדשות מושהות כרגע. תשובות לעסקים שכבר ענו ממשיכות.';
+    if (sentToday() >= ramp()) return `הגעתי לתקרת החימום של תיבת הפניות להיום (${ramp()}).`;
     if (IL(l) ? st.capIL > 0 && (st.sentIL || 0) >= st.capIL : st.cap > 0 && st.sent >= st.cap) return `הגעתי לתקרת הפניות להיום (${IL(l) ? st.capIL : st.cap}).`;
   }
   if (!gmail()) return 'אין חיבור לחשבון Google.';
@@ -433,6 +445,16 @@ async function tick() {
             if (text) await answer(l, text, H(theirs[theirs.length - 1], 'message-id'));
           }
         }
+        // Two short follow-ups to a US business that never answered (day 3 and day 7), in the same thread, no link. Not in Israel: there only one unsolicited mail is allowed.
+        if (l.status === 'contacted' && !IL(l) && !l.test && l.box === 'sales' && !(l.replies > 0) && (l.fu || 0) < 2 && !S().hold && !S().optout.includes(l.email)) {
+          const due = (l.contactedAt || 0) + ((l.fu || 0) === 0 ? 3 : 7) * DAY, h = ilHour();
+          if (Date.now() > due && h >= 16 && h < 23 && sentToday() < ramp() && Date.now() - (S().lastFirst || 0) > 170000) {
+            const st1 = S(); st1.lastFirst = Date.now(); st1.fuSent = (st1.fuSent || 0) + 1; l.fu = (l.fu || 0) + 1; save();
+            await send(l, 'Re: ' + (l.subject || 'your website'), l.fu === 1
+              ? `Hi, following up on my note about a website for ${l.name}. The demo I put together for you is ready. Would you like me to send the link?`
+              : `Last note from me. The demo site I built for ${l.name} is still here if you want to see it; just reply and I will send the link. If the timing is wrong, no problem, and I will not write again.`);
+          }
+        }
         if (payOn() && ['agreed', 'paid'].includes(l.status)) {
           for (const due of l.dues || []) {
             if (due.paid || due.at > Date.now()) continue;
@@ -452,6 +474,8 @@ setTimeout(() => { setInterval(() => tick().catch(e => console.error('sales tick
 export function salesProgram(action, o = {}) {
   const st = S();
   if (action === 'start') { st.on = true; save(); return 'תוכנית המכירות פועלת. ' + salesStatus(); }
+  if (action === 'pause') { st.hold = true; save(); return 'הפניות החדשות הושהו. תשובות לעסקים שכבר ענו, חשבוניות ובדיקת תשלומים ממשיכות כרגיל.'; }
+  if (action === 'resume') { st.hold = false; st.on = true; save(); return 'הפניות החדשות חודשו. ' + salesStatus(); }
   if (action === 'stop') { st.on = false; save(); return 'תוכנית המכירות נעצרה: לא יוצאות פניות, תשובות או חשבוניות עד שתופעל שוב.'; }
   if (action === 'report') return salesReport();
   if (action === 'mark_paid') return markPaid(o.lead);
@@ -480,7 +504,7 @@ export function salesStop() { S().on = false; save(); }
 export function salesStatus() {
   const st = S(), all = leads().filter(l => l.thread && !l.test), c = s => all.filter(l => l.status === s).length;
   const got = all.reduce((a, l) => a + (l.dues || []).filter(d => d.paid).reduce((x, d) => x + d.amount, 0), 0);
-  return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}. ארצות הברית: מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש, ${st.cap > 0 ? 'עד ' + st.cap + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? st.sent : 0}), משמרת קבועה ${st.daily ? st.daily.from + ':00 עד ' + st.daily.to + ':00' : 'אין'}. ישראל: מחיר מבוקש ${st.pricesIL.ask} שקלים, מינימום ${st.pricesIL.floor}, ליווי ${st.pricesIL.maint} לחודש (מינימום ${st.pricesIL.maintFloor}), ${st.capIL > 0 ? 'עד ' + st.capIL + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? (st.sentIL || 0) : 0}), משמרת קבועה ${st.dailyIL ? st.dailyIL.from + ':00 עד ' + st.dailyIL.to + ':00' : 'אין'}. ` +
+  return `מצב תוכנית המכירות: ${st.on ? 'פועלת' : 'כבויה'}${st.on && st.hold ? ', פניות חדשות מושהות' : ''}. חימום תיבת הפניות: עד ${ramp()} מיילים ביום כרגע. ארצות הברית: מחיר מבוקש ${st.prices.ask} דולר, מינימום ${st.prices.floor}, תחזוקה ${st.prices.maint} לחודש, ${st.cap > 0 ? 'עד ' + st.cap + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? st.sent : 0}), משמרת קבועה ${st.daily ? st.daily.from + ':00 עד ' + st.daily.to + ':00' : 'אין'}. ישראל: מחיר מבוקש ${st.pricesIL.ask} שקלים, מינימום ${st.pricesIL.floor}, ליווי ${st.pricesIL.maint} לחודש (מינימום ${st.pricesIL.maintFloor}), ${st.capIL > 0 ? 'עד ' + st.capIL + ' פניות ביום' : 'בלי מכסה יומית'} (היום יצאו ${st.day === today() ? (st.sentIL || 0) : 0}), משמרת קבועה ${st.dailyIL ? st.dailyIL.from + ':00 עד ' + st.dailyIL.to + ':00' : 'אין'}. ` +
     `פניות שיצאו: ${all.length}. בהתכתבות: ${c('talking')}. הסכימו וממתינים לתשלום: ${c('agreed')}. שילמו: ${c('paid') + c('done')}. לא מעוניינים: ${c('lost')}. ביקשו הסרה: ${c('optout')}. הועברו אליך: ${c('handoff')}. סך הכול התקבל: ${money(got)} דולר. ` +
     `חיבורים: מפות ${leadsOn() ? 'מחובר' : 'חסר'}, תיבת פניות ${salesBoxOn() ? salesBoxAddress() : 'לא מחוברת'}, תשלום ${paypalOn() ? 'חשבוניות PayPal' : meLink(1) ? 'קישור PayPal.Me, עם אימות לפי המייל של PayPal' : 'חסר'}, כתובת דואר ${ADDRESS() ? 'קיימת' : 'חסרה'}.`;
 }
@@ -518,6 +542,7 @@ export function salesCampaign(kind, place, count) {
   if (!leadsOn()) return 'החיפוש במפות לא מחובר.';
   if (!kind || !place) return 'צריך סוג עסק ומקום.';
   if (!st.on) return 'תוכנית המכירות כבויה. צריך להפעיל אותה קודם.';
+  if (st.hold) return 'הפניות החדשות מושהות כרגע.';
   if (!ADDRESS()) return 'לא התחלתי: חסרה כתובת הדואר לתחתית המייל (SALES_ADDRESS בשרת).';
   if (campaigns.size) return 'סבב פניות אחד כבר רץ כרגע. אודיע כשיסתיים.';
   const id = Date.now(); campaigns.add(id);
@@ -594,7 +619,8 @@ async function shiftTickFor(market) {
   if (!sh || sh.done || now < sh.start) return;
   if (st.day !== today()) { st.day = today(); st.sent = 0; st.sentIL = 0; }
   const used = il ? (st.sentIL || 0) : st.sent, cap = il ? st.capIL : st.cap, over = now >= sh.end;
-  if (over || !st.on || sh.looked >= sh.max || (cap > 0 && used >= cap)) {
+  if (st.hold) return;
+  if (over || !st.on || sh.looked >= sh.max || (cap > 0 && used >= cap) || sentToday() >= ramp()) {
     if (campaigns.size) return;                              // let the running round finish first
     if (!over && st[k.daily] && st.on) return;               // budget used up before the end: wait quietly for the end of the window
     sh.done = true; save();
